@@ -1,0 +1,45 @@
+# Git and editor metadata
+.git/
+.github/
+.DS_Store
+.vscode/
+.idea/
+
+# Python local artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Local secrets and config
+.env
+.env.*
+*.env
+credentials.json
+gmail_token.json
+token.json
+secrets*.json
+
+# Terraform local state and generated packages
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/.build/
+infra/terraform.tfstate
+infra/terraform.tfstate.*
+infra/*.tfvars
+infra/*.tfvars.json
+*.zip
+
+# Tests and docs are not needed in the runtime image
+tests/
+docs/
+README.md
+scripts/
+pytest.ini
+requirements-dev.txt

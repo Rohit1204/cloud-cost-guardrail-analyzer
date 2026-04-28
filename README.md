@@ -39,6 +39,7 @@ See [`docs/architecture.md`](docs/architecture.md) for design details and data f
 
 ```text
 .github/workflows/       GitHub Actions CI
+Dockerfile               FastAPI container image for future ECS deployment
 infra/                   Terraform infrastructure
 scripts/                 Local helper scripts
 src/api.py               Local FastAPI wrapper
@@ -162,6 +163,30 @@ terraform apply
 
 See [`docs/deployment.md`](docs/deployment.md) for the full production deployment process.
 
+## Container Build For ECS
+
+The primary deployment target is still Lambda, but the FastAPI wrapper can be containerized for a future ECS/Fargate deployment.
+
+Build locally:
+
+```bash
+docker build -t cloud-cost-guardrail-bot:local .
+```
+
+Run locally with AWS credentials mounted from your machine:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e TARGET_AWS_REGION=ap-south-1 \
+  -e ALERT_CHANNELS=gmail \
+  -e GMAIL_RECIPIENT=you@example.com \
+  -e GMAIL_TOKEN_JSON='{"token":"..."}' \
+  -v "$HOME/.aws:/home/app/.aws:ro" \
+  cloud-cost-guardrail-bot:local
+```
+
+For ECS, inject secrets through AWS Secrets Manager or SSM Parameter Store and use a task role with the same read-only AWS permissions as the Lambda role.
+
 ## Alert Format
 
 ```text
@@ -204,6 +229,7 @@ See [`docs/security.md`](docs/security.md) for production hardening recommendati
 Implemented:
 
 - Serverless scheduled execution through EventBridge and Lambda.
+- Container image path for future ECS/Fargate deployment.
 - Read-only AWS inspection permissions.
 - Local FastAPI trigger for manual testing.
 - Owner and environment tag routing for Gmail alerts.
