@@ -13,6 +13,23 @@ def _amount(result: dict[str, Any]) -> float:
     return float(result.get("Total", {}).get("UnblendedCost", {}).get("Amount", 0.0))
 
 
+def _top_services(results: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
+    totals: dict[str, float] = {}
+    currency = "USD"
+    for result in results:
+        for group in result.get("Groups", []):
+            service = group.get("Keys", ["Unknown"])[0]
+            metric = group.get("Metrics", {}).get("UnblendedCost", {})
+            amount = float(metric.get("Amount", 0.0))
+            currency = metric.get("Unit", currency)
+            totals[service] = totals.get(service, 0.0) + amount
+    return [
+        {"service": service, "amount": round(amount, 4), "currency": currency}
+        for service, amount in sorted(totals.items(), key=lambda item: item[1], reverse=True)[:limit]
+        if amount > 0
+    ]
+
+
 def detect_spend_spikes(factory: AwsClientFactory, settings: Settings) -> list[Finding]:
     today = date.today()
     start = today - timedelta(days=settings.lookback_days + 1)
@@ -32,6 +49,13 @@ def detect_spend_spikes(factory: AwsClientFactory, settings: Settings) -> list[F
     if baseline == 0 and latest < settings.spend_spike_min_usd:
         return []
 
+    latest_day = today - timedelta(days=1)
+    latest_service_results = factory.daily_unblended_costs(
+        start=latest_day.isoformat(),
+        end=today.isoformat(),
+        group_by_service=True,
+    )
+
     return [
         Finding(
             category=FindingCategory.SPEND_SPIKE,
@@ -50,6 +74,7 @@ def detect_spend_spikes(factory: AwsClientFactory, settings: Settings) -> list[F
             metadata={
                 "baseline_daily_cost": baseline,
                 "increase": increase,
+                "top_services": _top_services(latest_service_results),
                 "environment": settings.default_environment,
                 "owner_email": resolve_owner_email(None, settings.default_environment, settings),
             },

@@ -105,6 +105,8 @@ For every alert:
 4. Apply remediation manually.
 5. Tag intentional exceptions with an owner and expiry date.
 
+For high-cost service recommendations, start with the service-specific playbook in the alert. The bot chooses these steps from the service family and spend context, so an EC2 alert should lead with Compute Optimizer and Savings Plans, while an S3 alert should lead with lifecycle, Storage Lens, and data transfer checks.
+
 ## Observability Improvements
 
 Recommended production additions:

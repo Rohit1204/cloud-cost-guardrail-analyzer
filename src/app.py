@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from dataclasses import replace
+from datetime import date, timedelta
 import json
 import logging
 from typing import Any
@@ -23,7 +25,7 @@ OPENAPI_SPEC: dict[str, Any] = {
     "info": {
         "title": "Cloud Cost Guardrail Bot API",
         "version": "0.1.0",
-        "description": "HTTP API for health checks and on-demand AWS cost guardrail runs.",
+        "description": "HTTP API for cost summaries, recommendations, alerts, and health checks.",
     },
     "paths": {
         "/health": {
@@ -37,9 +39,78 @@ OPENAPI_SPEC: dict[str, Any] = {
                 },
             }
         },
+        "/costs/summary": {
+            "get": {
+                "summary": "Get cost summary",
+                "parameters": [
+                    {
+                        "name": "months",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "default": 1, "minimum": 1, "maximum": 12},
+                        "description": "Number of months to include in the cost summary.",
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cost summary with monthly costs and top services.",
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    }
+                },
+            }
+        },
+        "/recommendations": {
+            "get": {
+                "summary": "Get recommendations without sending alerts",
+                "parameters": [
+                    {
+                        "name": "months",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "default": 1, "minimum": 1, "maximum": 12},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Read-only cost summary, findings, recommendations, and detector errors.",
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    }
+                },
+            }
+        },
+        "/alerts/run": {
+            "post": {
+                "summary": "Run checks and send configured alerts",
+                "requestBody": {
+                    "required": False,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "gmail_recipient": {"type": "string", "format": "email"},
+                                    "alert_channels": {
+                                        "type": "array",
+                                        "items": {"type": "string", "enum": ["gmail", "whatsapp"]},
+                                    },
+                                    "cost_months": {"type": "integer", "default": 1, "minimum": 1, "maximum": 12},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Alert delivery status, notification results, summary counts, cost summary, and detector errors.",
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    },
+                    "400": {"description": "Invalid request body."},
+                },
+            }
+        },
         "/run": {
             "post": {
-                "summary": "Run guardrail checks",
+                "summary": "Deprecated compatibility endpoint for running guardrail checks",
                 "requestBody": {
                     "required": False,
                     "content": {
@@ -53,6 +124,13 @@ OPENAPI_SPEC: dict[str, Any] = {
                                         "type": "array",
                                         "items": {"type": "string", "enum": ["gmail", "whatsapp"]},
                                     },
+                                    "cost_months": {
+                                        "type": "integer",
+                                        "default": 1,
+                                        "minimum": 1,
+                                        "maximum": 12,
+                                        "description": "Number of months to include in cost_summary.",
+                                    },
                                 },
                             }
                         }
@@ -60,7 +138,7 @@ OPENAPI_SPEC: dict[str, Any] = {
                 },
                 "responses": {
                     "200": {
-                        "description": "Guardrail findings, notification results, and detector errors.",
+                        "description": "Current month cost summary, guardrail findings, notification results, and detector errors.",
                         "content": {"application/json": {"schema": {"type": "object"}}},
                     },
                     "400": {"description": "Invalid request body."},
@@ -114,6 +192,10 @@ def _notify(settings: Any, recommendations: Any) -> list[NotificationResult]:
     return results
 
 
+def _serializable_dataclass(value: Any) -> dict[str, Any]:
+    return asdict(value)
+
+
 def _run_detector(name: str, detector: Any, factory: AwsClientFactory, settings: Settings) -> tuple[list[Finding], dict[str, str] | None]:
     try:
         return detector(factory, settings), None
@@ -122,12 +204,100 @@ def _run_detector(name: str, detector: Any, factory: AwsClientFactory, settings:
         return [], {"detector": name, "error_type": type(exc).__name__, "message": str(exc)}
 
 
-def run_guardrail(settings: Settings | None = None, *, send_alerts: bool = True) -> dict[str, Any]:
+def _add_months(month_start: date, months: int) -> date:
+    month_index = month_start.month - 1 + months
+    return date(month_start.year + month_index // 12, month_index % 12 + 1, 1)
+
+
+def _cost_window(months: int) -> tuple[date, date]:
+    today = date.today()
+    current_month = today.replace(day=1)
+    start = _add_months(current_month, -(months - 1))
+    # Cost Explorer end date is exclusive. Tomorrow includes current partial month-to-date data.
+    end = today + timedelta(days=1)
+    return start, end
+
+
+def _cost_amount(metric: dict[str, Any]) -> tuple[float, str]:
+    return float(metric.get("Amount", 0.0)), str(metric.get("Unit", "USD"))
+
+
+def _cost_summary(
+    factory: AwsClientFactory,
+    *,
+    months: int = 1,
+    top_n: int = 10,
+) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
+    start, end = _cost_window(months)
+    try:
+        monthly_results = factory.monthly_unblended_costs(
+            start=start.isoformat(),
+            end=end.isoformat(),
+            group_by_service=False,
+        )
+        service_results = factory.monthly_unblended_costs(
+            start=start.isoformat(),
+            end=end.isoformat(),
+            group_by_service=True,
+        )
+    except Exception as exc:
+        logger.exception("cost_summary detector failed")
+        return None, {"detector": "cost_summary", "error_type": type(exc).__name__, "message": str(exc)}
+
+    monthly_costs: list[dict[str, Any]] = []
+    total = 0.0
+    currency = "USD"
+    for result in monthly_results:
+        metric = result.get("Total", {}).get("UnblendedCost", {})
+        amount, currency = _cost_amount(metric)
+        total += amount
+        monthly_costs.append(
+            {
+                "start": result.get("TimePeriod", {}).get("Start"),
+                "end": result.get("TimePeriod", {}).get("End"),
+                "amount": round(amount, 4),
+                "currency": currency,
+            }
+        )
+
+    service_totals: dict[str, float] = {}
+    for result in service_results:
+        for group in result.get("Groups", []):
+            service = group.get("Keys", ["Unknown"])[0]
+            metric = group.get("Metrics", {}).get("UnblendedCost", {})
+            amount, currency = _cost_amount(metric)
+            service_totals[service] = service_totals.get(service, 0.0) + amount
+
+    service_costs = [
+        {"service": service, "amount": round(amount, 4), "currency": currency}
+        for service, amount in sorted(service_totals.items(), key=lambda item: item[1], reverse=True)
+        if amount > 0
+    ]
+    return (
+        {
+            "months": months,
+            "period": {"start": start.isoformat(), "end": end.isoformat()},
+            "total_unblended_cost": round(total, 4),
+            "month_to_date_unblended_cost": round(monthly_costs[-1]["amount"], 4) if monthly_costs else 0,
+            "currency": currency,
+            "monthly_costs": monthly_costs,
+            "top_services": service_costs[:top_n],
+        },
+        None,
+    )
+
+
+def run_guardrail(settings: Settings | None = None, *, send_alerts: bool = True, cost_months: int = 1) -> dict[str, Any]:
     settings = settings or load_settings()
     factory = AwsClientFactory(settings.aws_region)
 
     findings: list[Finding] = []
     errors: list[dict[str, str]] = []
+    normalized_cost_months = max(1, min(cost_months, 12))
+    cost_summary, cost_error = _cost_summary(factory, months=normalized_cost_months)
+    if cost_error:
+        errors.append(cost_error)
+
     detectors = [
         ("idle_resources", detect_idle_resources),
         ("spend_spikes", detect_spend_spikes),
@@ -143,8 +313,11 @@ def run_guardrail(settings: Settings | None = None, *, send_alerts: bool = True)
     notification_results = _notify(settings, recommendations) if send_alerts and recommendations else []
 
     response = {
+        "cost_summary": cost_summary,
         "finding_count": len(findings),
         "recommendation_count": len(recommendations),
+        "findings": [_serializable_dataclass(finding) for finding in findings],
+        "recommendations": [_serializable_dataclass(recommendation) for recommendation in recommendations],
         "notifications": [result.__dict__ for result in notification_results],
         "errors": errors,
     }
@@ -193,6 +366,75 @@ def _json_body(event: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
+def _query_params(event: dict[str, Any]) -> dict[str, str]:
+    raw_params = event.get("queryStringParameters") or {}
+    if not isinstance(raw_params, dict):
+        return {}
+    return {str(key): str(value) for key, value in raw_params.items() if value is not None}
+
+
+def _cost_months_from_value(raw_value: Any, default: int = 1) -> int:
+    if raw_value is None or raw_value == "":
+        return default
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("cost_months/months must be an integer") from exc
+    if value < 1 or value > 12:
+        raise ValueError("cost_months/months must be between 1 and 12")
+    return value
+
+
+def _apply_request_overrides(settings: Settings, body: dict[str, Any]) -> Settings:
+    if body.get("gmail_recipient"):
+        settings = replace(settings, gmail_recipient=str(body["gmail_recipient"]))
+    if body.get("alert_channels"):
+        settings = replace(settings, alert_channels=tuple(str(channel).lower() for channel in body["alert_channels"]))
+    return settings
+
+
+def _recommendation_response(settings: Settings, *, cost_months: int, send_alerts: bool) -> dict[str, Any]:
+    result = run_guardrail(settings, send_alerts=send_alerts, cost_months=cost_months)
+    return {
+        "type": "recommendations",
+        "cost_summary": result["cost_summary"],
+        "finding_count": result["finding_count"],
+        "recommendation_count": result["recommendation_count"],
+        "findings": result["findings"],
+        "recommendations": result["recommendations"],
+        "errors": result["errors"],
+    }
+
+
+def _alert_run_response(settings: Settings, *, cost_months: int) -> dict[str, Any]:
+    result = run_guardrail(settings, send_alerts=True, cost_months=cost_months)
+    notifications = result["notifications"]
+    recommendation_count = result["recommendation_count"]
+    if recommendation_count == 0:
+        delivery_status = "skipped_no_recommendations"
+    elif not notifications:
+        delivery_status = "skipped_no_channels"
+    elif all(notification.get("delivered") for notification in notifications):
+        delivery_status = "delivered"
+    else:
+        delivery_status = "partial_or_failed"
+
+    return {
+        "type": "alert_run",
+        "alert_run": {
+            "delivery_status": delivery_status,
+            "requested_channels": list(settings.alert_channels),
+            "notification_count": len(notifications),
+            "recommendations_sent_count": recommendation_count if notifications else 0,
+        },
+        "cost_summary": result["cost_summary"],
+        "finding_count": result["finding_count"],
+        "recommendation_count": recommendation_count,
+        "notifications": notifications,
+        "errors": result["errors"],
+    }
+
+
 def _handle_http_api_event(event: dict[str, Any]) -> dict[str, Any]:
     method, path = _http_method_and_path(event)
 
@@ -219,19 +461,37 @@ def _handle_http_api_event(event: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-    if method == "POST" and path == "/run":
+    if method == "GET" and path == "/costs/summary":
+        try:
+            months = _cost_months_from_value(_query_params(event).get("months"))
+        except ValueError as exc:
+            return _json_response(400, {"error": str(exc)})
+        factory = AwsClientFactory(settings.aws_region)
+        cost_summary, cost_error = _cost_summary(factory, months=months)
+        return _json_response(200, {"cost_summary": cost_summary, "errors": [cost_error] if cost_error else []})
+
+    if method == "GET" and path == "/recommendations":
+        try:
+            months = _cost_months_from_value(_query_params(event).get("months"))
+        except ValueError as exc:
+            return _json_response(400, {"error": str(exc)})
+        return _json_response(200, _recommendation_response(settings, cost_months=months, send_alerts=False))
+
+    if method == "POST" and path in {"/alerts/run", "/run"}:
         try:
             body = _json_body(event)
         except ValueError as exc:
             return _json_response(400, {"error": str(exc)})
 
-        if body.get("gmail_recipient"):
-            settings = replace(settings, gmail_recipient=str(body["gmail_recipient"]))
-        if body.get("alert_channels"):
-            settings = replace(settings, alert_channels=tuple(str(channel).lower() for channel in body["alert_channels"]))
-
+        settings = _apply_request_overrides(settings, body)
+        try:
+            cost_months = _cost_months_from_value(body.get("cost_months"))
+        except ValueError as exc:
+            return _json_response(400, {"error": str(exc)})
+        if path == "/alerts/run":
+            return _json_response(200, _alert_run_response(settings, cost_months=cost_months))
         send_alerts = bool(body.get("send_alerts", True))
-        return _json_response(200, run_guardrail(settings, send_alerts=send_alerts))
+        return _json_response(200, run_guardrail(settings, send_alerts=send_alerts, cost_months=cost_months))
 
     return _json_response(404, {"error": f"No route for {method} {path}"})
 

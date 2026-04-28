@@ -191,6 +191,24 @@ resource "aws_apigatewayv2_route" "openapi" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "costs_summary" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /costs/summary"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "recommendations" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /recommendations"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "alerts_run" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "POST /alerts/run"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "run" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "POST /run"

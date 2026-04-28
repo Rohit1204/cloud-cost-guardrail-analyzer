@@ -76,6 +76,8 @@ high_cost_service_threshold_usd    = 100
 
 Tune thresholds based on account size and expected daily spend.
 
+`cost_summary` is not threshold-based. It always attempts to return unblended cost and top services from Cost Explorer. Use the `/costs/summary?months=6` query parameter for read-only cost views, or `cost_months` in `/alerts/run` requests. Supported windows are 1 to 12 months.
+
 ## Owner Routing
 
 Resource-level findings read AWS tags and add `owner`, `owner_email`, and `environment` metadata when possible. Gmail alerts are grouped by `owner_email`, so different teams receive only their own findings.

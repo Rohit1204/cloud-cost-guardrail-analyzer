@@ -87,12 +87,35 @@ class AwsClientFactory:
             return None
         return sum(values) / len(values)
 
-    def daily_unblended_costs(self, *, start: str, end: str, group_by_service: bool = False) -> list[dict[str, Any]]:
+    def unblended_costs(
+        self,
+        *,
+        start: str,
+        end: str,
+        granularity: str,
+        group_by_service: bool = False,
+    ) -> list[dict[str, Any]]:
         kwargs: dict[str, Any] = {
             "TimePeriod": {"Start": start, "End": end},
-            "Granularity": "DAILY",
+            "Granularity": granularity,
             "Metrics": ["UnblendedCost"],
         }
         if group_by_service:
             kwargs["GroupBy"] = [{"Type": "DIMENSION", "Key": "SERVICE"}]
         return self.ce.get_cost_and_usage(**kwargs).get("ResultsByTime", [])
+
+    def daily_unblended_costs(self, *, start: str, end: str, group_by_service: bool = False) -> list[dict[str, Any]]:
+        return self.unblended_costs(
+            start=start,
+            end=end,
+            granularity="DAILY",
+            group_by_service=group_by_service,
+        )
+
+    def monthly_unblended_costs(self, *, start: str, end: str, group_by_service: bool = False) -> list[dict[str, Any]]:
+        return self.unblended_costs(
+            start=start,
+            end=end,
+            granularity="MONTHLY",
+            group_by_service=group_by_service,
+        )

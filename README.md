@@ -10,11 +10,12 @@ The project is built as a production-oriented reference implementation: Terrafor
 - Detect unattached EBS volumes that continue to incur storage cost.
 - Detect idle RDS instances from CPU and connection metrics.
 - Detect AWS spend spikes using Cost Explorer daily baselines.
+- Show current month-to-date AWS cost and top services through `/costs/summary` and recommendation responses.
 - Identify high-cost services that need deeper savings review.
 - Send human-readable alerts through Gmail API and Meta WhatsApp Cloud API.
 - Route Gmail alerts by AWS owner and environment tags.
 - Return partial results when one AWS detector fails, instead of failing the entire run.
-- Provide concrete remediation actions, commands, owner checks, and priority levels.
+- Provide adaptive remediation actions based on service family, spend delta, environment, owner route, and estimated savings.
 
 ## System Architecture
 
@@ -101,15 +102,48 @@ Check health:
 curl http://127.0.0.1:8000/health
 ```
 
-Trigger a local run with Gmail alerts:
+Fetch cost history:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/run \
+curl "http://127.0.0.1:8000/costs/summary?months=6"
+```
+
+Fetch recommendations without sending alerts:
+
+```bash
+curl "http://127.0.0.1:8000/recommendations?months=1"
+```
+
+Trigger alerts:
+
+```bash
+curl -X POST http://127.0.0.1:8000/alerts/run \
   -H 'Content-Type: application/json' \
-  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
+  -d '{"cost_months": 6, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
 ```
 
 For local runs, the app automatically reads `gmail_token.json` from the project root if `GMAIL_TOKEN_JSON` is not exported.
+
+Cost summary responses include a `cost_summary` block when Cost Explorer data is available. Use `months` on `GET /costs/summary` or `cost_months` on alert runs to request a 1 to 12 month window:
+
+```json
+{
+  "cost_summary": {
+    "months": 6,
+    "period": {"start": "2026-04-01", "end": "2026-04-29"},
+    "total_unblended_cost": 42.11,
+    "month_to_date_unblended_cost": 12.34,
+    "currency": "USD",
+    "monthly_costs": [
+      {"start": "2026-03-01", "end": "2026-04-01", "amount": 29.77, "currency": "USD"},
+      {"start": "2026-04-01", "end": "2026-04-29", "amount": 12.34, "currency": "USD"}
+    ],
+    "top_services": [
+      {"service": "Amazon Elastic Compute Cloud - Compute", "amount": 8.12, "currency": "USD"}
+    ]
+  }
+}
+```
 
 ## Gmail Setup
 
@@ -180,16 +214,22 @@ Frontend or manual callers can use:
 ```bash
 curl "$(terraform output -raw api_gateway_endpoint)/health"
 open "$(terraform output -raw api_gateway_endpoint)/docs"
-curl -X POST "$(terraform output -raw api_gateway_endpoint)/run" \
+curl "$(terraform output -raw api_gateway_endpoint)/costs/summary?months=6"
+curl "$(terraform output -raw api_gateway_endpoint)/recommendations?months=1"
+curl -X POST "$(terraform output -raw api_gateway_endpoint)/alerts/run" \
   -H 'Content-Type: application/json' \
-  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
+  -d '{"cost_months": 12, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
 ```
 
 Swagger UI is served from `GET /docs`, and the OpenAPI schema is served from `GET /openapi.json`.
 
-For a public frontend, add authentication before exposing `/run` broadly.
+Use `GET /costs/summary` for frontend charts, `GET /recommendations` for read-only findings and recommendation lists, and `POST /alerts/run` for notification delivery status. The alert endpoint returns counts and delivery results instead of duplicating the full recommendation payload. `POST /run` remains available only as a compatibility alias.
+
+For a public frontend, add authentication before exposing `/alerts/run` broadly.
 
 ## Alert Format
+
+Recommendations are context-aware. The engine selects different playbooks for EC2, S3, RDS, EBS, NAT/data transfer, CloudWatch, Lambda, and unknown services. It also changes priority and next steps based on production tags, estimated savings, spend baseline, top service contributors, and owner routing metadata.
 
 ```text
 [WARNING] Unattached EBS volume: vol-123

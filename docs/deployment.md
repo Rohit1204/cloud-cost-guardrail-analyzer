@@ -135,6 +135,18 @@ Health check:
 curl "$(terraform output -raw api_gateway_endpoint)/health"
 ```
 
+Cost summary for charts:
+
+```bash
+curl "$(terraform output -raw api_gateway_endpoint)/costs/summary?months=6"
+```
+
+Read-only recommendations:
+
+```bash
+curl "$(terraform output -raw api_gateway_endpoint)/recommendations?months=1"
+```
+
 Swagger docs:
 
 ```bash
@@ -142,15 +154,17 @@ open "$(terraform output -raw api_gateway_endpoint)/docs"
 curl "$(terraform output -raw api_gateway_endpoint)/openapi.json"
 ```
 
-Run guardrails through API Gateway:
+Run guardrails and send alerts through API Gateway:
 
 ```bash
-curl -X POST "$(terraform output -raw api_gateway_endpoint)/run" \
+curl -X POST "$(terraform output -raw api_gateway_endpoint)/alerts/run" \
   -H 'Content-Type: application/json' \
-  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
+  -d '{"cost_months": 6, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
 ```
 
-For a browser frontend, add authentication and authorization before exposing `/run` publicly. Good production options are Cognito authorizers, JWT authorizers, or a private API behind an authenticated backend.
+The `/costs/summary` and `/recommendations` responses include `cost_summary.month_to_date_unblended_cost`, `cost_summary.total_unblended_cost`, `cost_summary.monthly_costs`, and `cost_summary.top_services` when Cost Explorer data is available. `/alerts/run` returns the same cost summary plus notification delivery status and summary counts. Set `months` or `cost_months` to a value from 1 to 12 depending on the frontend view.
+
+For a browser frontend, add authentication and authorization before exposing `/alerts/run` publicly. Good production options are Cognito authorizers, JWT authorizers, or a private API behind an authenticated backend.
 
 ## Local FastAPI Testing
 
@@ -165,12 +179,19 @@ Health check:
 curl http://127.0.0.1:8000/health
 ```
 
-Run guardrails:
+Fetch costs and recommendations:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/run \
+curl "http://127.0.0.1:8000/costs/summary?months=6"
+curl "http://127.0.0.1:8000/recommendations?months=1"
+```
+
+Run guardrails and send alerts:
+
+```bash
+curl -X POST http://127.0.0.1:8000/alerts/run \
   -H 'Content-Type: application/json' \
-  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
+  -d '{"cost_months": 12, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
 ```
 
 ## Destroy
