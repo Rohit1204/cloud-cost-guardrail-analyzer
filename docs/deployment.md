@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide describes local setup, AWS prerequisites, Terraform deployment, and local FastAPI testing.
+This guide describes local setup, AWS prerequisites, Terraform deployment, API Gateway access, and local FastAPI testing.
 
 ## AWS Prerequisites
 
@@ -119,6 +119,39 @@ aws lambda invoke \
   response.json
 ```
 
+## API Gateway For Frontend
+
+Terraform creates an API Gateway HTTP API in front of the Lambda.
+
+Get the endpoint:
+
+```bash
+terraform output api_gateway_endpoint
+```
+
+Health check:
+
+```bash
+curl "$(terraform output -raw api_gateway_endpoint)/health"
+```
+
+Swagger docs:
+
+```bash
+open "$(terraform output -raw api_gateway_endpoint)/docs"
+curl "$(terraform output -raw api_gateway_endpoint)/openapi.json"
+```
+
+Run guardrails through API Gateway:
+
+```bash
+curl -X POST "$(terraform output -raw api_gateway_endpoint)/run" \
+  -H 'Content-Type: application/json' \
+  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
+```
+
+For a browser frontend, add authentication and authorization before exposing `/run` publicly. Good production options are Cognito authorizers, JWT authorizers, or a private API behind an authenticated backend.
+
 ## Local FastAPI Testing
 
 ```bash
@@ -139,33 +172,6 @@ curl -X POST http://127.0.0.1:8000/run \
   -H 'Content-Type: application/json' \
   -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
 ```
-
-## Container Build
-
-The `Dockerfile` builds the FastAPI service for local container testing and future ECS/Fargate deployment.
-
-```bash
-docker build -t cloud-cost-guardrail-bot:local .
-```
-
-Run with local AWS credentials:
-
-```bash
-docker run --rm -p 8000:8000 \
-  -e TARGET_AWS_REGION=ap-south-1 \
-  -e ALERT_CHANNELS=gmail \
-  -e GMAIL_RECIPIENT=you@example.com \
-  -e GMAIL_TOKEN_JSON='{"token":"..."}' \
-  -v "$HOME/.aws:/home/app/.aws:ro" \
-  cloud-cost-guardrail-bot:local
-```
-
-For ECS, use:
-
-- ECR to store the image.
-- ECS task role for AWS Cost Explorer, EC2, RDS, and CloudWatch read permissions.
-- Secrets Manager or SSM Parameter Store for Gmail and WhatsApp secrets.
-- EventBridge Scheduler or an internal scheduler to trigger `/run` if you want scheduled ECS execution.
 
 ## Destroy
 

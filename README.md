@@ -1,6 +1,6 @@
 # Cloud Cost Guardrail Bot
 
-Cloud Cost Guardrail Bot is a serverless AWS cost-governance system that detects idle resources, spend spikes, and savings opportunities, then sends actionable recommendations through Gmail and WhatsApp.
+Cloud Cost Guardrail Bot is a serverless AWS cost-governance system that detects idle resources, spend spikes, and savings opportunities, exposes a lightweight API for frontend use, and sends actionable recommendations through Gmail and WhatsApp.
 
 The project is built as a production-oriented reference implementation: Terraform-managed infrastructure, a scheduled Python Lambda runtime, local FastAPI testing, focused unit tests, CI validation, and documented operational runbooks.
 
@@ -20,6 +20,8 @@ The project is built as a production-oriented reference implementation: Terrafor
 
 ```mermaid
 flowchart LR
+  Frontend["Frontend"] --> ApiGateway["API Gateway HTTP API"]
+  ApiGateway --> Lambda["Python Lambda"]
   EventBridge["EventBridge schedule"] --> Lambda["Python Lambda"]
   Lambda --> CostExplorer["AWS Cost Explorer"]
   Lambda --> CloudWatch["CloudWatch metrics"]
@@ -39,7 +41,6 @@ See [`docs/architecture.md`](docs/architecture.md) for design details and data f
 
 ```text
 .github/workflows/       GitHub Actions CI
-Dockerfile               FastAPI container image for future ECS deployment
 infra/                   Terraform infrastructure
 scripts/                 Local helper scripts
 src/api.py               Local FastAPI wrapper
@@ -163,29 +164,30 @@ terraform apply
 
 See [`docs/deployment.md`](docs/deployment.md) for the full production deployment process.
 
-## Container Build For ECS
+## API Gateway For Frontend
 
-The primary deployment target is still Lambda, but the FastAPI wrapper can be containerized for a future ECS/Fargate deployment.
+Terraform creates an API Gateway HTTP API in front of the same Lambda used by EventBridge.
 
-Build locally:
-
-```bash
-docker build -t cloud-cost-guardrail-bot:local .
-```
-
-Run locally with AWS credentials mounted from your machine:
+After deployment, get the API endpoint:
 
 ```bash
-docker run --rm -p 8000:8000 \
-  -e TARGET_AWS_REGION=ap-south-1 \
-  -e ALERT_CHANNELS=gmail \
-  -e GMAIL_RECIPIENT=you@example.com \
-  -e GMAIL_TOKEN_JSON='{"token":"..."}' \
-  -v "$HOME/.aws:/home/app/.aws:ro" \
-  cloud-cost-guardrail-bot:local
+cd infra
+terraform output api_gateway_endpoint
 ```
 
-For ECS, inject secrets through AWS Secrets Manager or SSM Parameter Store and use a task role with the same read-only AWS permissions as the Lambda role.
+Frontend or manual callers can use:
+
+```bash
+curl "$(terraform output -raw api_gateway_endpoint)/health"
+open "$(terraform output -raw api_gateway_endpoint)/docs"
+curl -X POST "$(terraform output -raw api_gateway_endpoint)/run" \
+  -H 'Content-Type: application/json' \
+  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
+```
+
+Swagger UI is served from `GET /docs`, and the OpenAPI schema is served from `GET /openapi.json`.
+
+For a public frontend, add authentication before exposing `/run` broadly.
 
 ## Alert Format
 
@@ -229,7 +231,7 @@ See [`docs/security.md`](docs/security.md) for production hardening recommendati
 Implemented:
 
 - Serverless scheduled execution through EventBridge and Lambda.
-- Container image path for future ECS/Fargate deployment.
+- API Gateway HTTP API for frontend and manual trigger access.
 - Read-only AWS inspection permissions.
 - Local FastAPI trigger for manual testing.
 - Owner and environment tag routing for Gmail alerts.

@@ -9,13 +9,21 @@ resource "null_resource" "lambda_build" {
   triggers = {
     requirements = filesha256("${path.module}/../requirements.txt")
     source       = local.source_hash
+    packaging    = "manylinux2014-x86_64-python311-v1"
   }
 
   provisioner "local-exec" {
     command = <<EOT
 rm -rf "${path.module}/.build"
 mkdir -p "${local.build_dir}"
-python3 -m pip install -r "${path.module}/../requirements.txt" -t "${local.build_dir}"
+python3 -m pip install \
+  --platform manylinux2014_x86_64 \
+  --implementation cp \
+  --python-version 3.11 \
+  --only-binary=:all: \
+  --upgrade \
+  -r "${path.module}/../requirements.txt" \
+  -t "${local.build_dir}"
 cp -R "${path.module}/../src/"* "${local.build_dir}/"
 EOT
   }
@@ -96,6 +104,7 @@ resource "aws_lambda_function" "guardrail" {
   role             = aws_iam_role.lambda.arn
   handler          = "app.lambda_handler"
   runtime          = "python3.11"
+  architectures    = ["x86_64"]
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
   timeout          = 120
@@ -150,4 +159,54 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   function_name = aws_lambda_function.guardrail.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.schedule.arn
+}
+
+resource "aws_apigatewayv2_api" "http" {
+  name          = "${var.project_name}-api"
+  protocol_type = "HTTP"
+}
+
+resource "aws_apigatewayv2_integration" "lambda" {
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.guardrail.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "health" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /health"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "docs" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /docs"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "openapi" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /openapi.json"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "run" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "POST /run"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.http.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_lambda_permission" "allow_apigateway" {
+  statement_id  = "AllowExecutionFromApiGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.guardrail.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }

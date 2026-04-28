@@ -70,3 +70,76 @@ def test_run_guardrail_returns_partial_results_when_detector_fails(monkeypatch) 
             "message": "Cost Explorer is not enabled",
         }
     ]
+
+
+def test_lambda_handler_returns_http_health_response(monkeypatch) -> None:
+    monkeypatch.setattr(app, "load_settings", settings)
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/health",
+            "requestContext": {"http": {"method": "GET", "path": "/health"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    assert '"status": "ok"' in response["body"]
+
+
+def test_lambda_handler_serves_swagger_docs() -> None:
+    response = app.lambda_handler(
+        {
+            "rawPath": "/docs",
+            "requestContext": {"http": {"method": "GET", "path": "/docs"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    assert response["headers"]["content-type"].startswith("text/html")
+    assert "SwaggerUIBundle" in response["body"]
+
+
+def test_lambda_handler_serves_swagger_docs_without_loading_settings(monkeypatch) -> None:
+    def fail_load_settings():
+        raise RuntimeError("config should not be loaded for docs")
+
+    monkeypatch.setattr(app, "load_settings", fail_load_settings)
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/docs",
+            "requestContext": {"http": {"method": "GET", "path": "/docs"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    assert "SwaggerUIBundle" in response["body"]
+
+
+def test_lambda_handler_serves_openapi_spec() -> None:
+    response = app.lambda_handler(
+        {
+            "rawPath": "/openapi.json",
+            "requestContext": {"http": {"method": "GET", "path": "/openapi.json"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    assert "Cloud Cost Guardrail Bot API" in response["body"]
+
+
+def test_lambda_handler_returns_bad_request_for_invalid_http_body() -> None:
+    response = app.lambda_handler(
+        {
+            "rawPath": "/run",
+            "body": "{",
+            "requestContext": {"http": {"method": "POST", "path": "/run"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 400
