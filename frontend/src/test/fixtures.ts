@@ -1,0 +1,74 @@
+import type { AlertRunResponse, CostSummaryResponse, HealthResponse, RecommendationsResponse } from "@/lib/types";
+
+export const healthFixture: HealthResponse = {
+  status: "ok",
+  target_region: "ap-south-1",
+  alert_channels: ["gmail"],
+  gmail_token_configured: true,
+  gmail_recipient_configured: true,
+  whatsapp_configured: false,
+};
+
+export const costSummaryFixture: CostSummaryResponse = {
+  cost_summary: {
+    months: 6,
+    period: { start: "2026-03-01", end: "2026-04-29" },
+    total_unblended_cost: 42.11,
+    month_to_date_unblended_cost: 12.34,
+    currency: "USD",
+    monthly_costs: [
+      { start: "2026-03-01", end: "2026-04-01", amount: 29.77, currency: "USD" },
+      { start: "2026-04-01", end: "2026-04-29", amount: 12.34, currency: "USD" },
+    ],
+    top_services: [
+      { service: "Amazon Elastic Compute Cloud - Compute", amount: 8.12, currency: "USD" },
+      { service: "Amazon Simple Storage Service", amount: 4.22, currency: "USD" },
+    ],
+  },
+  errors: [],
+};
+
+export const recommendationsFixture: RecommendationsResponse = {
+  type: "recommendations",
+  cost_summary: costSummaryFixture.cost_summary,
+  finding_count: 1,
+  recommendation_count: 1,
+  findings: [],
+  recommendations: [
+    {
+      priority: "warning",
+      action: "Snapshot and delete the unattached volume.",
+      rationale: "Detached EBS volumes continue billing while unused.",
+      next_steps: ["Create a final snapshot.", "Delete after validation."],
+      finding: {
+        category: "unattached_ebs",
+        resource_id: "vol-001",
+        resource_type: "ebs-volume",
+        region: "ap-south-1",
+        title: "Unattached EBS volume: vol-001",
+        description: "Volume has been detached for 10 days.",
+        metric_name: "age_days",
+        metric_value: 10,
+        threshold: 0,
+        estimated_monthly_savings: 8,
+        metadata: { owner: "platform", environment: "dev" },
+      },
+    },
+  ],
+  errors: [],
+};
+
+export const alertRunFixture: AlertRunResponse = {
+  type: "alert_run",
+  alert_run: {
+    delivery_status: "delivered",
+    requested_channels: ["gmail"],
+    notification_count: 1,
+    recommendations_sent_count: 1,
+  },
+  cost_summary: costSummaryFixture.cost_summary,
+  finding_count: 1,
+  recommendation_count: 1,
+  notifications: [{ channel: "gmail", delivered: true, detail: "sent" }],
+  errors: [],
+};

@@ -34,6 +34,7 @@ Configuration is supplied through Terraform variables for deployed Lambda and en
 | --- | --- | --- |
 | `aws_region` | `ap-south-1` | AWS region for Lambda and regional checks. |
 | `project_name` | `cloud-cost-guardrail-bot` | Resource name prefix. |
+| `frontend_allowed_origins` | `["http://localhost:3000", "http://127.0.0.1:3000"]` | Browser origins allowed by API Gateway CORS. |
 | `schedule_expression` | `rate(1 day)` | EventBridge schedule. |
 | `lookback_days` | `7` | Metric and cost lookback period. |
 | `idle_cpu_threshold` | `5` | Idle CPU threshold. |
@@ -77,6 +78,16 @@ high_cost_service_threshold_usd    = 100
 Tune thresholds based on account size and expected daily spend.
 
 `cost_summary` is not threshold-based. It always attempts to return unblended cost and top services from Cost Explorer. Use the `/costs/summary?months=6` query parameter for read-only cost views, or `cost_months` in `/alerts/run` requests. Supported windows are 1 to 12 months.
+
+## Frontend Environment
+
+The Next.js app reads its backend URL from `NEXT_PUBLIC_API_BASE_URL`:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Use the local FastAPI URL during development or the Terraform `api_gateway_endpoint` output after deployment.
 
 ## Owner Routing
 

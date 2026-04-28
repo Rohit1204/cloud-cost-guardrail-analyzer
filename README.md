@@ -52,6 +52,7 @@ src/notifiers/           Gmail and WhatsApp delivery adapters
 src/recommendations.py   Actionable recommendation engine
 tests/                   Unit tests with mocked AWS responses
 docs/                    Production readiness documentation
+frontend/                Next.js cost analyzer dashboard
 ```
 
 ## Documentation
@@ -61,6 +62,7 @@ docs/                    Production readiness documentation
 - [`docs/operations.md`](docs/operations.md): runbooks, troubleshooting, observability, and incident response.
 - [`docs/security.md`](docs/security.md): secrets, IAM, Terraform state, and production hardening.
 - [`docs/configuration.md`](docs/configuration.md): all runtime and Terraform configuration options.
+- [`docs/frontend.md`](docs/frontend.md): Next.js dashboard UX, API integration, state management, and tests.
 
 ## Requirements
 
@@ -145,6 +147,39 @@ Cost summary responses include a `cost_summary` block when Cost Explorer data is
 }
 ```
 
+## Frontend Dashboard
+
+The repo includes a responsive Next.js dashboard in `frontend/` so the project is not only a backend automation bot, but a complete cost analyzer product. It uses TypeScript, Tailwind CSS, Recharts, plain `fetch` with `useEffect`/`useState`, and focused component tests.
+
+The frontend shows:
+
+- Executive cost cards for month-to-date cost, selected window total, open recommendations, and notification readiness.
+- Monthly cost trend and top service driver charts from `/costs/summary`.
+- Owner-aware recommendation cards from `/recommendations`, including priority, resource, environment, rationale, estimated savings, and next steps.
+- Alert workflow controls for `/alerts/run`, including channel selection, Gmail recipient override, delivery status, and notification results.
+- Loading, empty, error, retry, and partial-data states so Cost Explorer or detector failures do not break the whole page.
+
+The frontend is intentionally simple to understand: no TanStack Query or heavy global state. Data loading is handled through typed API client functions and small custom hooks built with `useEffect`, `useState`, `AbortController`, and retry helpers.
+
+Run it locally against the FastAPI wrapper:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+For deployed API Gateway, set `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local`:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
+```
+
+The dashboard covers cost summary cards, monthly cost charts, top service drivers, owner-aware recommendations, backend health, and the alert delivery workflow.
+
+See [`docs/frontend.md`](docs/frontend.md) for the frontend architecture, UX structure, and test coverage.
+
 ## Gmail Setup
 
 Create an OAuth client in Google Cloud Console, enable Gmail API, download the client JSON as `credentials.json`, then generate the authorized user token:
@@ -226,6 +261,15 @@ Swagger UI is served from `GET /docs`, and the OpenAPI schema is served from `GE
 Use `GET /costs/summary` for frontend charts, `GET /recommendations` for read-only findings and recommendation lists, and `POST /alerts/run` for notification delivery status. The alert endpoint returns counts and delivery results instead of duplicating the full recommendation payload. `POST /run` remains available only as a compatibility alias.
 
 For a public frontend, add authentication before exposing `/alerts/run` broadly.
+
+If the frontend is hosted on a deployed domain, add it to `frontend_allowed_origins` before running `terraform apply`:
+
+```hcl
+frontend_allowed_origins = [
+  "http://localhost:3000",
+  "https://your-frontend.example.com"
+]
+```
 
 ## Alert Format
 

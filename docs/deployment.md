@@ -166,6 +166,33 @@ The `/costs/summary` and `/recommendations` responses include `cost_summary.mont
 
 For a browser frontend, add authentication and authorization before exposing `/alerts/run` publicly. Good production options are Cognito authorizers, JWT authorizers, or a private API behind an authenticated backend.
 
+API Gateway CORS is enabled for `frontend_allowed_origins`. For local Next.js development the defaults allow `http://localhost:3000` and `http://127.0.0.1:3000`. Add your deployed frontend origin before applying Terraform:
+
+```hcl
+frontend_allowed_origins = [
+  "http://localhost:3000",
+  "https://your-frontend.example.com"
+]
+```
+
+## Next.js Frontend
+
+Run the dashboard locally:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Set `NEXT_PUBLIC_API_BASE_URL` to the local FastAPI URL or the deployed API Gateway endpoint:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
+```
+
 ## Local FastAPI Testing
 
 ```bash

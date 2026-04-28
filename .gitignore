@@ -36,3 +36,10 @@ crash.*.log
 .idea/
 infra/.build/
 *.zip
+
+# Frontend
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo

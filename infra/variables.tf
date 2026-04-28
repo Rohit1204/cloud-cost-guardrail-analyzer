@@ -10,6 +10,12 @@ variable "project_name" {
   default     = "cloud-cost-guardrail-bot"
 }
 
+variable "frontend_allowed_origins" {
+  description = "Allowed browser origins for API Gateway CORS."
+  type        = list(string)
+  default     = ["http://localhost:3000", "http://127.0.0.1:3000"]
+}
+
 variable "schedule_expression" {
   description = "EventBridge schedule expression for cost guardrail checks."
   type        = string
