@@ -221,9 +221,9 @@ See [`docs/frontend.md`](docs/frontend.md) for the frontend architecture, UX str
 
 Static previews of this app’s UI live in [`docs/assets/`](docs/assets/) so the README can show the current layout without checking in large PNGs. Replace them with your own exports if you prefer pixel-accurate captures.
 
-![Sign-in — Cloud Cost Guardrail](docs/assets/login-screen.svg?v=2)
+![Sign-in — Cloud Cost Guardrail](docs/assets/login-screen-v2.svg)
 
-![Dashboard — Cloud Cost Guardrail](docs/assets/dashboard-screen.svg?v=2)
+![Dashboard — Cloud Cost Guardrail](docs/assets/dashboard-screen-v2.svg)
 
 The illustrations above match the **Welcome back** login (gradient-style background, three feature tiles, Google button) and the **dashboard** shell (header with live badge and actions, four summary cards, cost analyzer chart, recommendations column). For documentation or sharing, you can also screenshot:
 
