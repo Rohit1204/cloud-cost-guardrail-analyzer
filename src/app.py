@@ -7,6 +7,8 @@ import json
 import logging
 from typing import Any
 
+from auth import AuthError
+from auth import verify_google_user
 from aws_clients import AwsClientFactory
 from config import Settings
 from config import load_settings
@@ -16,6 +18,8 @@ from detectors.spend_spikes import detect_spend_spikes
 from models import Finding
 from models import NotificationResult
 from recommendations import build_recommendations
+from recommendation_status import enrich_recommendations
+from recommendation_status import update_status
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -75,6 +79,36 @@ OPENAPI_SPEC: dict[str, Any] = {
                         "description": "Read-only cost summary, findings, recommendations, and detector errors.",
                         "content": {"application/json": {"schema": {"type": "object"}}},
                     }
+                },
+            }
+        },
+        "/recommendations/status": {
+            "patch": {
+                "summary": "Update recommendation workflow status",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["recommendation_id", "status"],
+                                "properties": {
+                                    "recommendation_id": {"type": "string"},
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["new", "acknowledged", "in_progress", "resolved"],
+                                    },
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated recommendation status.",
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    },
+                    "400": {"description": "Invalid status update."},
                 },
             }
         },
@@ -373,6 +407,13 @@ def _query_params(event: dict[str, Any]) -> dict[str, str]:
     return {str(key): str(value) for key, value in raw_params.items() if value is not None}
 
 
+def _headers(event: dict[str, Any]) -> dict[str, str]:
+    raw_headers = event.get("headers") or {}
+    if not isinstance(raw_headers, dict):
+        return {}
+    return {str(key).lower(): str(value) for key, value in raw_headers.items() if value is not None}
+
+
 def _cost_months_from_value(raw_value: Any, default: int = 1) -> int:
     if raw_value is None or raw_value == "":
         return default
@@ -399,13 +440,14 @@ def _apply_request_overrides(settings: Settings, body: dict[str, Any]) -> Settin
 
 def _recommendation_response(settings: Settings, *, cost_months: int, send_alerts: bool) -> dict[str, Any]:
     result = run_guardrail(settings, send_alerts=send_alerts, cost_months=cost_months)
+    recommendations = enrich_recommendations(settings, result["recommendations"])
     return {
         "type": "recommendations",
         "cost_summary": result["cost_summary"],
         "finding_count": result["finding_count"],
-        "recommendation_count": result["recommendation_count"],
+        "recommendation_count": len(recommendations),
         "findings": result["findings"],
-        "recommendations": result["recommendations"],
+        "recommendations": recommendations,
         "errors": result["errors"],
     }
 
@@ -450,11 +492,18 @@ def _handle_http_api_event(event: dict[str, Any]) -> dict[str, Any]:
 
     settings = load_settings()
 
+    try:
+        user = verify_google_user(settings, _headers(event))
+    except AuthError as exc:
+        return _json_response(exc.status_code, {"error": str(exc)})
+
     if method == "GET" and path == "/health":
         return _json_response(
             200,
             {
                 "status": "ok",
+                "auth_enabled": bool(settings.google_client_id),
+                "authenticated_user": user.get("email") if user else None,
                 "target_region": settings.aws_region,
                 "alert_channels": settings.alert_channels,
                 "gmail_token_configured": settings.gmail_token_json is not None,
@@ -480,6 +529,16 @@ def _handle_http_api_event(event: dict[str, Any]) -> dict[str, Any]:
         except ValueError as exc:
             return _json_response(400, {"error": str(exc)})
         return _json_response(200, _recommendation_response(settings, cost_months=months, send_alerts=False))
+
+    if method == "PATCH" and path == "/recommendations/status":
+        try:
+            body = _json_body(event)
+            updated = update_status(settings, str(body.get("recommendation_id", "")), str(body.get("status", "")))
+        except ValueError as exc:
+            return _json_response(400, {"error": str(exc)})
+        except RuntimeError as exc:
+            return _json_response(503, {"error": str(exc)})
+        return _json_response(200, updated)
 
     if method == "POST" and path in {"/alerts/run", "/run"}:
         try:

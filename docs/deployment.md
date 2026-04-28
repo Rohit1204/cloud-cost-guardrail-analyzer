@@ -54,6 +54,8 @@ python scripts/generate_gmail_token.py --print-terraform-var
 
 ## Terraform Variables
 
+Terraform is organized into modules under `infra/modules/` (`lambda`, `api_gateway`, `frontend_static`, `schedule`). The root stack is `infra/main.tf`.
+
 Create `infra/terraform.tfvars`. Do not commit it.
 
 ```hcl
@@ -192,6 +194,7 @@ Set `NEXT_PUBLIC_API_BASE_URL` to the local FastAPI URL or the deployed API Gate
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
 NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-web-client-id.apps.googleusercontent.com
 ```
 
 The frontend is configured as a static export, so `npm run build` writes deployable static files to `frontend/out/`.
@@ -202,23 +205,55 @@ Build with the deployed API Gateway endpoint:
 cd frontend
 NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" \
 NEXT_PUBLIC_ALLOWED_ALERT_EMAILS="you@example.com,cloud-cost-owner@example.com" \
+NEXT_PUBLIC_GOOGLE_CLIENT_ID="your-google-web-client-id.apps.googleusercontent.com" \
 npm run build
 ```
 
-Deploy the generated files to S3:
+Terraform creates a private S3 bucket and CloudFront distribution for the static frontend. Upload the generated files to the bucket output:
 
 ```bash
-aws s3 sync out/ s3://your-frontend-bucket --delete
+aws s3 sync out/ "s3://$(terraform -chdir=../infra output -raw frontend_bucket_name)/" --delete
+aws cloudfront create-invalidation \
+  --distribution-id "$(terraform -chdir=../infra output -raw frontend_cloudfront_distribution_id)" \
+  --paths "/*"
 ```
 
-Recommended production hosting:
+The hosted URL is available from Terraform:
+
+```bash
+terraform -chdir=../infra output -raw frontend_cloudfront_url
+```
+
+Production hosting path:
 
 ```text
 Browser -> CloudFront -> S3 static frontend
 Browser -> API Gateway -> Lambda backend
 ```
 
-After CloudFront is created, add its domain to `frontend_allowed_origins` and apply Terraform again so API Gateway CORS allows the hosted frontend.
+After CloudFront is created, add its domain to `frontend_allowed_origins` and apply Terraform again so API Gateway CORS allows the hosted frontend:
+
+```hcl
+frontend_allowed_origins = [
+  "http://localhost:3000",
+  "https://dxxxxx.cloudfront.net"
+]
+```
+
+## One-command frontend deploy
+
+From the repository root, [`deploy.sh`](../deploy.sh) runs `npm ci`, `npm run build` in `frontend/`, syncs `frontend/out/` to the Terraform S3 bucket, and invalidates CloudFront. It reads `frontend/.env.local` for `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_ALLOWED_ALERT_EMAILS`, and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` at build time.
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+Skip CDN invalidation when you want a faster upload (cache may serve old assets until TTL expires):
+
+```bash
+SKIP_CLOUDFRONT_INVALIDATION=1 ./deploy.sh
+```
 
 ## Local FastAPI Testing
 

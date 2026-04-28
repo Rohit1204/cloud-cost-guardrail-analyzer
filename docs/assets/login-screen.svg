@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Google login screen preview</title>
+  <desc id="desc">Portfolio preview of the Cloud Cost Guardrail Google sign-in page.</desc>
+  <rect width="1200" height="760" fill="#f8fafc"/>
+  <rect x="340" y="150" width="520" height="460" rx="32" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="390" y="210" width="56" height="56" rx="16" fill="#eff6ff"/>
+  <path d="M418 225l18 8v14c0 18-12 30-18 33-6-3-18-15-18-33v-14l18-8z" fill="#2563eb"/>
+  <text x="390" y="315" fill="#020617" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700">Sign in to Cloud Cost Guardrail</text>
+  <text x="390" y="360" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">Protect AWS cost data, recommendations, and alert controls</text>
+  <text x="390" y="386" fill="#475569" font-family="Inter, Arial, sans-serif" font-size="18">before loading the dashboard.</text>
+  <rect x="390" y="435" width="320" height="48" rx="24" fill="#ffffff" stroke="#cbd5e1"/>
+  <circle cx="420" cy="459" r="13" fill="#4285f4"/>
+  <text x="450" y="466" fill="#334155" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600">Sign in with Google</text>
+  <text x="390" y="540" fill="#64748b" font-family="Inter, Arial, sans-serif" font-size="14">Only emails in AUTH_ALLOWED_EMAILS can access the API.</text>
+</svg>

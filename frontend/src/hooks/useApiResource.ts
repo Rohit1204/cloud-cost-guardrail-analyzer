@@ -9,6 +9,10 @@ type ResourceState<T> = {
   reload: () => void;
 };
 
+type ResourceOptions = {
+  autoLoad?: boolean;
+};
+
 function messageFromError(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") {
     return "Request cancelled";
@@ -16,15 +20,20 @@ function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong";
 }
 
-export function useApiResource<T>(loader: (signal: AbortSignal) => Promise<T>, deps: unknown[] = []): ResourceState<T> {
+export function useApiResource<T>(loader: (signal: AbortSignal) => Promise<T>, deps: unknown[] = [], options: ResourceOptions = {}): ResourceState<T> {
+  const autoLoad = options.autoLoad ?? true;
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(autoLoad);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   const reload = useCallback(() => setReloadToken((token) => token + 1), []);
 
   useEffect(() => {
+    if (!autoLoad && reloadToken === 0) {
+      return;
+    }
+
     const controller = new AbortController();
 
     Promise.resolve()
@@ -53,7 +62,7 @@ export function useApiResource<T>(loader: (signal: AbortSignal) => Promise<T>, d
 
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadToken, ...deps]);
+  }, [autoLoad, reloadToken, ...deps]);
 
   return { data, loading, error, reload };
 }

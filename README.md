@@ -14,6 +14,9 @@ The project is built as a production-oriented reference implementation: Terrafor
 - Identify high-cost services that need deeper savings review.
 - Send human-readable alerts through Gmail API and Meta WhatsApp Cloud API.
 - Route Gmail alerts by AWS owner and environment tags.
+- Protect the dashboard and API with Google sign-in and an allowed-email list.
+- Throttle side-effecting alert runs at API Gateway to reduce repeated notification sends.
+- Track recommendation workflow status in DynamoDB: New, Acknowledged, In Progress, Resolved.
 - Return partial results when one AWS detector fails, instead of failing the entire run.
 - Provide adaptive remediation actions based on service family, spend delta, environment, owner route, and estimated savings.
 
@@ -42,7 +45,8 @@ See [`docs/architecture.md`](docs/architecture.md) for design details and data f
 
 ```text
 .github/workflows/       GitHub Actions CI
-infra/                   Terraform infrastructure
+deploy.sh                Build static frontend and deploy to S3/CloudFront
+infra/                   Terraform infrastructure (root + modules/)
 scripts/                 Local helper scripts
 src/api.py               Local FastAPI wrapper
 src/app.py               Lambda handler and orchestration
@@ -154,9 +158,12 @@ The repo includes a responsive Next.js dashboard in `frontend/` so the project i
 The frontend shows:
 
 - Executive cost cards for month-to-date cost, selected window total, open recommendations, and notification readiness.
+- Billing due reminder and invoice estimate, including projected month-end charges and an AWS Billing Console link.
 - Monthly cost trend and top service driver charts from `/costs/summary`.
-- Owner-aware recommendation cards from `/recommendations`, including priority, resource, environment, rationale, estimated savings, and next steps.
+- Filterable owner-aware recommendation cards from `/recommendations`, including priority, status, resource, environment, rationale, estimated savings, and next steps.
+- Recommendation workflow controls to move items through New, Acknowledged, In Progress, and Resolved.
 - Alert workflow controls for `/alerts/run`, including channel selection, an approved Gmail recipient dropdown, delivery status, and notification results.
+- Interactive Google login page (animated layout, feature highlights, loading state for the sign-in control) before the dashboard loads, with sign-out and authenticated API calls.
 - Loading, empty, error, retry, and partial-data states so Cost Explorer or detector failures do not break the whole page.
 
 The frontend is intentionally simple to understand: no TanStack Query or heavy global state. Data loading is handled through typed API client functions and small custom hooks built with `useEffect`, `useState`, `AbortController`, and retry helpers.
@@ -175,6 +182,7 @@ For deployed API Gateway, set `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local
 ```bash
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
 NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-web-client-id.apps.googleusercontent.com
 ```
 
 The frontend is configured for static export with `output: "export"` in `frontend/next.config.ts`. Build it for S3/CloudFront with the API Gateway URL embedded as public frontend config:
@@ -183,18 +191,46 @@ The frontend is configured for static export with `output: "export"` in `fronten
 cd frontend
 NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" \
 NEXT_PUBLIC_ALLOWED_ALERT_EMAILS="you@example.com,cloud-cost-owner@example.com" \
+NEXT_PUBLIC_GOOGLE_CLIENT_ID="your-google-web-client-id.apps.googleusercontent.com" \
 npm run build
 ```
 
-The deployable static artifact is written to `frontend/out/`. Upload that folder to an S3 static website bucket and serve it through CloudFront:
+Terraform creates a private S3 bucket and CloudFront distribution for the static frontend. The deployable static artifact is written to `frontend/out/`; upload it to the Terraform-managed bucket:
 
 ```bash
-aws s3 sync out/ s3://your-frontend-bucket --delete
+aws s3 sync out/ "s3://$(terraform -chdir=../infra output -raw frontend_bucket_name)/" --delete
+aws cloudfront create-invalidation \
+  --distribution-id "$(terraform -chdir=../infra output -raw frontend_cloudfront_distribution_id)" \
+  --paths "/*"
+terraform -chdir=../infra output -raw frontend_cloudfront_url
 ```
 
-The dashboard covers cost summary cards, monthly cost charts, top service drivers, owner-aware recommendations, backend health, and the alert delivery workflow.
+**One-command deploy** (from the repo root; uses `terraform output` for the bucket and distribution, then syncs and invalidates CloudFront):
+
+```bash
+./deploy.sh
+```
+
+Set `NEXT_PUBLIC_*` values in `frontend/.env.local` before running. To upload without a CloudFront invalidation, use `SKIP_CLOUDFRONT_INVALIDATION=1 ./deploy.sh`.
+
+The dashboard covers cost summary cards, invoice estimates, billing due reminders, monthly cost charts, top service drivers, owner-aware recommendations, backend health, and the alert delivery workflow.
 
 See [`docs/frontend.md`](docs/frontend.md) for the frontend architecture, UX structure, and test coverage.
+
+## Portfolio Screenshots
+
+Add current screenshots after running the frontend locally or deploying it:
+
+![Google login screen](docs/assets/login-screen.svg)
+
+![Cost guardrail dashboard](docs/assets/dashboard-screen.svg)
+
+Recommended real captures for a portfolio README:
+
+- Login page: gradient background, feature tiles, and Google sign-in (or local-dev bypass when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset).
+- Dashboard overview showing cost cards, invoice estimate, charts, and recommendations.
+- Recommendation workflow showing filters and status buttons.
+- Alert workflow showing approved Gmail recipients and delivery status.
 
 ## Gmail Setup
 
@@ -209,12 +245,16 @@ This writes `gmail_token.json`, which is ignored by git. Treat `credentials.json
 
 ## Terraform Deployment
 
+Infrastructure is composed from reusable modules under `infra/modules/` (`lambda`, `api_gateway`, `frontend_static`, `schedule`). Root wiring lives in `infra/main.tf`, variables in `infra/variables.tf`, and outputs in `infra/outputs.tf`.
+
 Create `infra/terraform.tfvars` locally. This file is ignored by git.
 
 ```hcl
 aws_region      = "ap-south-1"
 gmail_recipient = "you@example.com"
 allowed_alert_recipients = "you@example.com,cloud-cost-owner@example.com"
+google_client_id = "your-google-web-client-id.apps.googleusercontent.com"
+auth_allowed_emails = "you@example.com,cloud-cost-owner@example.com"
 gmail_token_json = <<EOT
 {
   "token": "...",

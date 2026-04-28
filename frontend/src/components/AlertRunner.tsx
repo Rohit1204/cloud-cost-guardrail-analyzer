@@ -68,18 +68,23 @@ export function AlertRunner({ months }: Props) {
           {recipientOptions.length > 0 ? (
             <div className="space-y-2">
               <FieldLabel>Allowed Gmail recipient</FieldLabel>
-              <select
-                aria-label="Allowed Gmail recipient"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-blue-500/20 transition focus:border-blue-500 focus:ring-4"
-                onChange={(event) => setGmailRecipient(event.target.value)}
-                value={gmailRecipient}
-              >
+              <div aria-label="Allowed Gmail recipient" className="grid gap-2" role="group">
                 {recipientOptions.map((email) => (
-                  <option key={email} value={email}>
+                  <button
+                    aria-pressed={gmailRecipient === email}
+                    className={`w-full rounded-2xl border px-4 py-3 text-left text-sm font-medium transition ${
+                      gmailRecipient === email
+                        ? "border-blue-500 bg-blue-50 text-blue-800 shadow-sm"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-slate-50"
+                    }`}
+                    key={email}
+                    onClick={() => setGmailRecipient(email)}
+                    type="button"
+                  >
                     {email}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </div>
               <p className="text-xs text-slate-500">Only approved recipients can be selected. The backend enforces the same allowlist.</p>
             </div>
           ) : (

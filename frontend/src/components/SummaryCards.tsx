@@ -33,7 +33,7 @@ export function SummaryCards({ costSummary, health, recommendations }: Props) {
     {
       title: "Notification Channels",
       value: String(health?.alert_channels?.length ?? 0),
-      detail: health ? health.alert_channels.join(", ") || "No channels configured" : "Checking backend health",
+      detail: health ? health.alert_channels.join(", ") || "No channels configured" : "Run backend check for readiness",
       icon: Bell,
     },
   ];

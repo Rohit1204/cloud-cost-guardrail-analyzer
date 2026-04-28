@@ -36,6 +36,10 @@ Configuration is supplied through Terraform variables for deployed Lambda and en
 | `aws_region` | `ap-south-1` | AWS region for Lambda and regional checks. |
 | `project_name` | `cloud-cost-guardrail-bot` | Resource name prefix. |
 | `frontend_allowed_origins` | `["http://localhost:3000", "http://127.0.0.1:3000"]` | Browser origins allowed by API Gateway CORS. |
+| `frontend_bucket_name` | derived from project/account | Optional S3 bucket name for the static Next.js export. |
+| `frontend_cloudfront_price_class` | `PriceClass_100` | CloudFront price class for the static frontend distribution. |
+| `alerts_run_throttle_rate_limit` | `1` | Steady-state requests per second allowed for `POST /alerts/run`. |
+| `alerts_run_throttle_burst_limit` | `2` | Burst request limit for `POST /alerts/run`. |
 | `schedule_expression` | `rate(1 day)` | EventBridge schedule. |
 | `lookback_days` | `7` | Metric and cost lookback period. |
 | `idle_cpu_threshold` | `5` | Idle CPU threshold. |
@@ -47,6 +51,8 @@ Configuration is supplied through Terraform variables for deployed Lambda and en
 | `gmail_sender` | `me` | Gmail sender user ID. |
 | `gmail_recipient` | empty | Gmail recipient address. |
 | `allowed_alert_recipients` | empty | Comma-separated allowlist of Gmail recipient overrides accepted by the alert API. |
+| `google_client_id` | empty | Google OAuth web client ID used to verify dashboard sign-in ID tokens. Empty disables API auth for local development. |
+| `auth_allowed_emails` | empty | Comma-separated Google accounts allowed to use protected API routes. |
 | `gmail_token_json` | empty | Gmail OAuth token JSON. Sensitive. |
 | `owner_tag_keys` | `OwnerEmail,owner_email,Owner,owner,Team,team` | Comma-separated tag keys used for owner routing. |
 | `environment_tag_keys` | `Environment,environment,Env,env,Stage,stage` | Comma-separated tag keys used for environment context. |
@@ -81,6 +87,26 @@ Tune thresholds based on account size and expected daily spend.
 
 `cost_summary` is not threshold-based. It always attempts to return unblended cost and top services from Cost Explorer. Use the `/costs/summary?months=6` query parameter for read-only cost views, or `cost_months` in `/alerts/run` requests. Supported windows are 1 to 12 months.
 
+## Recommendation Workflow
+
+Recommendation acknowledgement state is stored in DynamoDB. Terraform creates the table and injects `RECOMMENDATION_STATUS_TABLE` into Lambda. The API returns each recommendation with:
+
+```json
+{
+  "recommendation_id": "...",
+  "status": "new"
+}
+```
+
+Allowed statuses are:
+
+- `new`
+- `acknowledged`
+- `in_progress`
+- `resolved`
+
+The frontend updates status through `PATCH /recommendations/status`.
+
 ## Frontend Environment
 
 The Next.js app reads its backend URL from `NEXT_PUBLIC_API_BASE_URL`:
@@ -88,6 +114,7 @@ The Next.js app reads its backend URL from `NEXT_PUBLIC_API_BASE_URL`:
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-web-client-id.apps.googleusercontent.com
 ```
 
 Use the local FastAPI URL during development or the Terraform `api_gateway_endpoint` output after deployment:
@@ -95,6 +122,7 @@ Use the local FastAPI URL during development or the Terraform `api_gateway_endpo
 ```bash
 NEXT_PUBLIC_API_BASE_URL=https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com
 NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-web-client-id.apps.googleusercontent.com
 ```
 
 For static export, this value is read at build time and embedded into the generated frontend files in `frontend/out/`:
@@ -103,8 +131,26 @@ For static export, this value is read at build time and embedded into the genera
 cd frontend
 NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" \
 NEXT_PUBLIC_ALLOWED_ALERT_EMAILS="you@example.com,cloud-cost-owner@example.com" \
+NEXT_PUBLIC_GOOGLE_CLIENT_ID="your-google-web-client-id.apps.googleusercontent.com" \
 npm run build
 ```
+
+## Google Login
+
+Google login uses a Google OAuth **web** client ID for sign-in. This is separate from the Gmail API OAuth token used for sending emails.
+
+Configure both sides with the same Google client ID:
+
+```hcl
+google_client_id    = "your-google-web-client-id.apps.googleusercontent.com"
+auth_allowed_emails = "you@example.com,cloud-cost-owner@example.com"
+```
+
+```bash
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-web-client-id.apps.googleusercontent.com
+```
+
+When `google_client_id` is empty, backend auth is disabled so local development can run without Google sign-in. When it is set, protected API routes require `Authorization: Bearer <google-id-token>` and reject users outside `auth_allowed_emails`.
 
 ## Owner Routing
 

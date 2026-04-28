@@ -16,6 +16,30 @@ variable "frontend_allowed_origins" {
   default     = ["http://localhost:3000", "http://127.0.0.1:3000"]
 }
 
+variable "frontend_bucket_name" {
+  description = "Optional S3 bucket name for the static Next.js export. Leave empty to derive one from project_name."
+  type        = string
+  default     = ""
+}
+
+variable "frontend_cloudfront_price_class" {
+  description = "CloudFront price class for the static frontend distribution."
+  type        = string
+  default     = "PriceClass_100"
+}
+
+variable "alerts_run_throttle_rate_limit" {
+  description = "Steady-state requests per second allowed for POST /alerts/run."
+  type        = number
+  default     = 1
+}
+
+variable "alerts_run_throttle_burst_limit" {
+  description = "Burst request limit for POST /alerts/run."
+  type        = number
+  default     = 2
+}
+
 variable "schedule_expression" {
   description = "EventBridge schedule expression for cost guardrail checks."
   type        = string
@@ -78,6 +102,18 @@ variable "gmail_recipient" {
 
 variable "allowed_alert_recipients" {
   description = "Comma-separated allowlist of Gmail recipient overrides accepted by the alert API."
+  type        = string
+  default     = ""
+}
+
+variable "google_client_id" {
+  description = "Google OAuth web client ID used to verify frontend Google sign-in ID tokens. Leave empty to disable API auth."
+  type        = string
+  default     = ""
+}
+
+variable "auth_allowed_emails" {
+  description = "Comma-separated Google account emails allowed to use the dashboard API."
   type        = string
   default     = ""
 }

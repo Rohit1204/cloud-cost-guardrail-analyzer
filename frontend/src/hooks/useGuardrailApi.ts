@@ -5,7 +5,7 @@ import type { CostSummaryResponse, HealthResponse, RecommendationsResponse } fro
 import { useApiResource } from "./useApiResource";
 
 export function useHealth() {
-  return useApiResource<HealthResponse>((signal) => getHealth(signal), []);
+  return useApiResource<HealthResponse>((signal) => getHealth(signal), [], { autoLoad: false });
 }
 
 export function useCostSummary(months: number) {

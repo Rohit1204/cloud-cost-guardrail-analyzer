@@ -3,8 +3,11 @@ import type {
   AlertRunResponse,
   CostSummaryResponse,
   HealthResponse,
+  RecommendationStatusUpdateRequest,
+  RecommendationStatusUpdateResponse,
   RecommendationsResponse,
 } from "./types";
+import { getAuthToken } from "./auth";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -40,9 +43,11 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const authToken = getAuthToken();
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...init,
     headers: {
+      ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
       "content-type": "application/json",
       ...init.headers,
     },
@@ -76,6 +81,17 @@ export function getRecommendations(months: number, signal?: AbortSignal): Promis
 export function runAlerts(request: AlertRunRequest, signal?: AbortSignal): Promise<AlertRunResponse> {
   return requestJson<AlertRunResponse>("/alerts/run", {
     method: "POST",
+    body: JSON.stringify(request),
+    signal,
+  });
+}
+
+export function updateRecommendationStatus(
+  request: RecommendationStatusUpdateRequest,
+  signal?: AbortSignal,
+): Promise<RecommendationStatusUpdateResponse> {
+  return requestJson<RecommendationStatusUpdateResponse>("/recommendations/status", {
+    method: "PATCH",
     body: JSON.stringify(request),
     signal,
   });

@@ -2,17 +2,23 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from fastapi import Depends
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi import Query
+from fastapi import Request
 from pydantic import BaseModel, Field
 
 from app import _alert_run_response
 from app import _cost_summary
 from app import _recommendation_response
 from app import run_guardrail
+from auth import AuthError
+from auth import verify_google_user
 from aws_clients import AwsClientFactory
 from config import Settings
 from config import load_settings
+from recommendation_status import update_status
 
 api = FastAPI(
     title="Cloud Cost Guardrail Bot",
@@ -31,11 +37,26 @@ class RunRequest(BaseModel):
     )
 
 
+class StatusRequest(BaseModel):
+    recommendation_id: str = Field(description="Stable recommendation id returned by GET /recommendations.")
+    status: str = Field(description="One of: new, acknowledged, in_progress, resolved.")
+
+
+def require_user(request: Request) -> dict[str, object] | None:
+    settings = load_settings()
+    try:
+        return verify_google_user(settings, {key.lower(): value for key, value in request.headers.items()})
+    except AuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @api.get("/health")
-def health() -> dict[str, object]:
+def health(user: dict[str, object] | None = Depends(require_user)) -> dict[str, object]:
     settings = load_settings()
     return {
         "status": "ok",
+        "auth_enabled": bool(settings.google_client_id),
+        "authenticated_user": user.get("email") if user else None,
         "target_region": settings.aws_region,
         "alert_channels": settings.alert_channels,
         "gmail_token_configured": settings.gmail_token_json is not None,
@@ -47,27 +68,38 @@ def health() -> dict[str, object]:
 
 
 @api.get("/costs/summary")
-def cost_summary(months: int = Query(default=1, ge=1, le=12)) -> dict[str, object]:
+def cost_summary(months: int = Query(default=1, ge=1, le=12), user: dict[str, object] | None = Depends(require_user)) -> dict[str, object]:
     settings = load_settings()
     summary, error = _cost_summary(AwsClientFactory(settings.aws_region), months=months)
     return {"cost_summary": summary, "errors": [error] if error else []}
 
 
 @api.get("/recommendations")
-def recommendations(months: int = Query(default=1, ge=1, le=12)) -> dict[str, object]:
+def recommendations(months: int = Query(default=1, ge=1, le=12), user: dict[str, object] | None = Depends(require_user)) -> dict[str, object]:
     settings = load_settings()
     return _recommendation_response(settings, send_alerts=False, cost_months=months)
 
 
+@api.patch("/recommendations/status")
+def recommendation_status(request: StatusRequest, user: dict[str, object] | None = Depends(require_user)) -> dict[str, str]:
+    settings = load_settings()
+    try:
+        return update_status(settings, request.recommendation_id, request.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @api.post("/alerts/run")
-def run_alerts(request: RunRequest | None = None) -> dict[str, object]:
+def run_alerts(request: RunRequest | None = None, user: dict[str, object] | None = Depends(require_user)) -> dict[str, object]:
     request = request or RunRequest()
     settings = _settings_with_overrides(request)
     return _alert_run_response(settings, cost_months=request.cost_months)
 
 
 @api.post("/run")
-def run(request: RunRequest | None = None) -> dict[str, object]:
+def run(request: RunRequest | None = None, user: dict[str, object] | None = Depends(require_user)) -> dict[str, object]:
     request = request or RunRequest()
     settings = _settings_with_overrides(request)
     return run_guardrail(settings, send_alerts=request.send_alerts, cost_months=request.cost_months)

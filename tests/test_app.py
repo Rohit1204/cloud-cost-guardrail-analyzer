@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import app
 from config import Settings
@@ -26,6 +27,9 @@ def settings() -> Settings:
         owner_email_map={},
         default_owner_email=None,
         default_environment=None,
+        recommendation_status_table=None,
+        google_client_id=None,
+        auth_allowed_emails=("owner@example.com",),
         whatsapp_access_token=None,
         whatsapp_phone_number_id=None,
         whatsapp_to=None,
@@ -172,6 +176,38 @@ def test_lambda_handler_returns_http_health_response(monkeypatch) -> None:
     assert '"status": "ok"' in response["body"]
 
 
+def test_lambda_handler_requires_google_token_when_auth_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(app, "load_settings", lambda: replace(settings(), google_client_id="client.apps.googleusercontent.com"))
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/health",
+            "requestContext": {"http": {"method": "GET", "path": "/health"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 401
+    assert "Missing Google sign-in token" in response["body"]
+
+
+def test_lambda_handler_accepts_verified_google_user(monkeypatch) -> None:
+    monkeypatch.setattr(app, "load_settings", lambda: replace(settings(), google_client_id="client.apps.googleusercontent.com"))
+    monkeypatch.setattr(app, "verify_google_user", lambda loaded_settings, headers: {"email": "owner@example.com"})
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/health",
+            "headers": {"authorization": "Bearer token"},
+            "requestContext": {"http": {"method": "GET", "path": "/health"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    assert '"authenticated_user": "owner@example.com"' in response["body"]
+
+
 def test_lambda_handler_serves_swagger_docs() -> None:
     response = app.lambda_handler(
         {
@@ -282,7 +318,12 @@ def test_lambda_handler_recommendations_endpoint_is_read_only(monkeypatch) -> No
             "finding_count": 1,
             "recommendation_count": 1,
             "findings": [{"resource_id": "vol-001"}],
-            "recommendations": [{"action": "delete unattached volume"}],
+            "recommendations": [
+                {
+                    "action": "delete unattached volume",
+                    "finding": {"category": "unattached_ebs", "resource_type": "ebs-volume", "resource_id": "vol-001"},
+                }
+            ],
             "notifications": [{"channel": "gmail", "delivered": True, "detail": "sent"}],
             "errors": [],
         }
@@ -304,7 +345,9 @@ def test_lambda_handler_recommendations_endpoint_is_read_only(monkeypatch) -> No
     body = json.loads(response["body"])
     assert body["type"] == "recommendations"
     assert body["findings"] == [{"resource_id": "vol-001"}]
-    assert body["recommendations"] == [{"action": "delete unattached volume"}]
+    assert body["recommendations"][0]["action"] == "delete unattached volume"
+    assert body["recommendations"][0]["status"] == "new"
+    assert body["recommendations"][0]["recommendation_id"]
     assert "notifications" not in body
 
 
@@ -376,3 +419,46 @@ def test_lambda_handler_rejects_disallowed_gmail_recipient(monkeypatch) -> None:
 
     assert response["statusCode"] == 400
     assert "allowed alert recipients" in response["body"]
+
+
+def test_lambda_handler_updates_recommendation_status(monkeypatch) -> None:
+    monkeypatch.setattr(app, "load_settings", settings)
+    monkeypatch.setattr(
+        app,
+        "update_status",
+        lambda loaded_settings, recommendation_id, status: {
+            "recommendation_id": recommendation_id,
+            "status": status,
+            "updated_at": "2026-04-29T00:00:00+00:00",
+        },
+    )
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/recommendations/status",
+            "body": '{"recommendation_id": "rec-001", "status": "acknowledged"}',
+            "requestContext": {"http": {"method": "PATCH", "path": "/recommendations/status"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    assert body["recommendation_id"] == "rec-001"
+    assert body["status"] == "acknowledged"
+
+
+def test_lambda_handler_rejects_invalid_recommendation_status(monkeypatch) -> None:
+    monkeypatch.setattr(app, "load_settings", settings)
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/recommendations/status",
+            "body": '{"recommendation_id": "rec-001", "status": "closed"}',
+            "requestContext": {"http": {"method": "PATCH", "path": "/recommendations/status"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 400
+    assert "status must be one of" in response["body"]

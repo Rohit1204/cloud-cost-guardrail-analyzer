@@ -26,6 +26,9 @@ class Settings:
     owner_email_map: dict[str, str]
     default_owner_email: str | None
     default_environment: str | None
+    recommendation_status_table: str | None
+    google_client_id: str | None
+    auth_allowed_emails: tuple[str, ...]
     whatsapp_access_token: str | None
     whatsapp_phone_number_id: str | None
     whatsapp_to: str | None
@@ -96,6 +99,9 @@ def load_settings() -> Settings:
         owner_email_map={str(key): str(value) for key, value in owner_email_map.items()},
         default_owner_email=os.getenv("DEFAULT_OWNER_EMAIL"),
         default_environment=os.getenv("DEFAULT_ENVIRONMENT"),
+        recommendation_status_table=os.getenv("RECOMMENDATION_STATUS_TABLE"),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID"),
+        auth_allowed_emails=_csv("AUTH_ALLOWED_EMAILS", os.getenv("ALLOWED_ALERT_RECIPIENTS", os.getenv("GMAIL_RECIPIENT", ""))),
         whatsapp_access_token=os.getenv("WHATSAPP_ACCESS_TOKEN"),
         whatsapp_phone_number_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
         whatsapp_to=os.getenv("WHATSAPP_TO"),

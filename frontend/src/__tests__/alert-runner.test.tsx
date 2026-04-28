@@ -19,7 +19,7 @@ describe("AlertRunner", () => {
 
     render(<AlertRunner months={6} />);
 
-    await user.selectOptions(screen.getByLabelText("Allowed Gmail recipient"), "team@example.com");
+    await user.click(screen.getByRole("button", { name: "team@example.com" }));
     await user.click(screen.getByRole("button", { name: /run alert workflow/i }));
 
     await waitFor(() => expect(screen.getByText("delivered")).toBeInTheDocument());

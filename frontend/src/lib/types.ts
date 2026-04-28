@@ -6,6 +6,8 @@ export type DetectorError = {
 
 export type HealthResponse = {
   status: string;
+  auth_enabled?: boolean;
+  authenticated_user?: string | null;
   target_region: string;
   alert_channels: string[];
   gmail_token_configured: boolean;
@@ -55,7 +57,11 @@ export type Finding = {
   metadata: Record<string, unknown>;
 };
 
+export type RecommendationStatus = "new" | "acknowledged" | "in_progress" | "resolved";
+
 export type Recommendation = {
+  recommendation_id: string;
+  status: RecommendationStatus;
   finding: Finding;
   priority: "critical" | "warning" | "info" | string;
   action: string;
@@ -98,4 +104,13 @@ export type AlertRunResponse = {
   recommendation_count: number;
   notifications: NotificationResult[];
   errors: DetectorError[];
+};
+
+export type RecommendationStatusUpdateRequest = {
+  recommendation_id: string;
+  status: RecommendationStatus;
+};
+
+export type RecommendationStatusUpdateResponse = RecommendationStatusUpdateRequest & {
+  updated_at: string;
 };

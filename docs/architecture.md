@@ -26,7 +26,7 @@ flowchart LR
 ## Runtime Flow
 
 1. EventBridge invokes the Lambda on a schedule, API Gateway invokes it for frontend requests, or a developer calls the local FastAPI endpoints.
-2. `config.py` loads thresholds, target region, notification channels, and tokens from environment variables or local token files.
+2. `config.py` loads thresholds, target region, notification channels, auth settings, and tokens from environment variables or local token files.
 3. `aws_clients.py` creates boto3 clients and wraps paginated AWS API calls.
 4. The runner fetches current month-to-date Cost Explorer totals for the `cost_summary` response block.
 5. Detector modules inspect idle resources, spend spikes, and high-cost services.
@@ -53,12 +53,19 @@ The production HTTP API exposes:
 - `GET /health`: returns target region, configured channels, and notification setup status.
 - `GET /costs/summary`: returns month-to-date or historical Cost Explorer totals and top services for frontend charts.
 - `GET /recommendations`: runs analysis and returns finding and recommendation lists without sending notifications.
+- `PATCH /recommendations/status`: stores recommendation workflow state in DynamoDB.
 - `POST /alerts/run`: runs analysis and sends configured Gmail or WhatsApp notifications, then returns delivery status and summary counts.
 - `POST /run`: deprecated compatibility alias for older clients.
 
-The responses include `cost_summary` for current month-to-date or historical cost visibility, even when no alert thresholds are crossed. Use `months` or `cost_months` to request a 1 to 12 month view.
+The responses include `cost_summary` for current month-to-date or historical cost visibility, even when no alert thresholds are crossed. Use `months` or `cost_months` to request a 1 to 12 month view. The frontend also uses this data to render an estimated invoice view and billing-period reminder; it does not attempt to pay AWS bills.
 
 The API Gateway integration uses Lambda proxy payload format `2.0`. The same Lambda handler supports EventBridge and HTTP API events.
+
+When `GOOGLE_CLIENT_ID` is configured, HTTP API routes verify the browser's Google ID token and check the signed-in email against `AUTH_ALLOWED_EMAILS`. Scheduled EventBridge runs do not require browser auth.
+
+## Operations Controls
+
+`POST /alerts/run` is route-throttled in API Gateway so repeated manual clicks cannot rapidly send alerts or increase notification API usage. Recommendation workflow state is stored in DynamoDB with stable recommendation IDs, allowing operators to move recommendations through `new`, `acknowledged`, `in_progress`, and `resolved`.
 
 ## Failure Model
 
@@ -76,10 +83,10 @@ In scope:
 - Terraform-managed AWS infrastructure.
 - Owner and environment tag routing for Gmail alerts.
 - API Gateway access for a frontend.
+- Google sign-in for dashboard/API access.
 
 Out of scope for the current version:
 
 - Automatic remediation.
 - Multi-account AWS Organizations aggregation.
-- Historical persistence outside CloudWatch Logs.
-- Dashboard UI.
+- Historical cost warehouse beyond Cost Explorer.
