@@ -1,18 +1,21 @@
 # Cloud Cost Guardrail Bot
 
-A senior-engineer style portfolio project that monitors AWS billing and usage signals, detects cost risks, and sends actionable alerts through Gmail and WhatsApp.
+Cloud Cost Guardrail Bot is a serverless AWS cost-governance system that detects idle resources, spend spikes, and savings opportunities, then sends actionable recommendations through Gmail and WhatsApp.
 
-The bot is designed for practical guardrails, not just dashboards. Every finding includes the reason it triggered, priority, estimated savings when available, and the next action to take.
+The project is built as a production-oriented reference implementation: Terraform-managed infrastructure, a scheduled Python Lambda runtime, local FastAPI testing, focused unit tests, CI validation, and documented operational runbooks.
 
-## What It Detects
+## Capabilities
 
-- Idle EC2 instances using CloudWatch CPU metrics.
-- Unattached EBS volumes that still incur storage cost.
-- Idle RDS instances using CPU and connection metrics.
-- Daily AWS spend spikes using Cost Explorer baselines.
-- High-cost services that deserve deeper savings review.
+- Detect idle EC2 instances from CloudWatch CPU metrics.
+- Detect unattached EBS volumes that continue to incur storage cost.
+- Detect idle RDS instances from CPU and connection metrics.
+- Detect AWS spend spikes using Cost Explorer daily baselines.
+- Identify high-cost services that need deeper savings review.
+- Send human-readable alerts through Gmail API and Meta WhatsApp Cloud API.
+- Return partial results when one AWS detector fails, instead of failing the entire run.
+- Provide concrete remediation actions, commands, owner checks, and priority levels.
 
-## Architecture
+## System Architecture
 
 ```mermaid
 flowchart LR
@@ -21,24 +24,134 @@ flowchart LR
   Lambda --> CloudWatch["CloudWatch metrics"]
   Lambda --> EC2["EC2 and EBS APIs"]
   Lambda --> RDS["RDS APIs"]
-  Lambda --> Recommendations["Recommendation engine"]
-  Recommendations --> Gmail["Gmail API"]
-  Recommendations --> WhatsApp["Meta WhatsApp Cloud API"]
+  Lambda --> Analyzer["Detector modules"]
+  Analyzer --> Recommender["Recommendation engine"]
+  Recommender --> Gmail["Gmail API"]
+  Recommender --> WhatsApp["WhatsApp Cloud API"]
   Lambda --> Logs["CloudWatch Logs"]
+  FastAPI["Local FastAPI wrapper"] --> Lambda
 ```
+
+See [`docs/architecture.md`](docs/architecture.md) for design details and data flow.
 
 ## Repository Layout
 
 ```text
-infra/                  Terraform infrastructure
-src/app.py              Lambda handler and orchestration
-src/detectors/          Idle resource, spend spike, and savings detectors
-src/notifiers/          Gmail and WhatsApp delivery adapters
-src/recommendations.py  Actionable recommendation engine
-tests/                  Unit tests with mocked AWS responses
+.github/workflows/       GitHub Actions CI
+infra/                   Terraform infrastructure
+scripts/                 Local helper scripts
+src/api.py               Local FastAPI wrapper
+src/app.py               Lambda handler and orchestration
+src/aws_clients.py       boto3 client factory and AWS wrappers
+src/detectors/           Cost and resource detectors
+src/notifiers/           Gmail and WhatsApp delivery adapters
+src/recommendations.py   Actionable recommendation engine
+tests/                   Unit tests with mocked AWS responses
+docs/                    Production readiness documentation
 ```
 
-## Alert Example
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md): architecture, runtime flow, and module responsibilities.
+- [`docs/deployment.md`](docs/deployment.md): AWS prerequisites, Terraform deployment, and local FastAPI testing.
+- [`docs/operations.md`](docs/operations.md): runbooks, troubleshooting, observability, and incident response.
+- [`docs/security.md`](docs/security.md): secrets, IAM, Terraform state, and production hardening.
+- [`docs/configuration.md`](docs/configuration.md): all runtime and Terraform configuration options.
+
+## Requirements
+
+- Python 3.11 or newer for Lambda compatibility.
+- Terraform 1.5 or newer.
+- AWS CLI configured with credentials for the target account.
+- AWS Cost Explorer enabled in the payer account.
+- Gmail API OAuth token for email notifications.
+- Meta WhatsApp Cloud API credentials if WhatsApp alerts are enabled.
+
+Default AWS region: `ap-south-1`.
+
+## Quick Start
+
+Install local dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+Verify AWS credentials:
+
+```bash
+aws sts get-caller-identity
+```
+
+Run the local FastAPI wrapper:
+
+```bash
+PYTHONPATH=src uvicorn api:api --reload
+```
+
+Check health:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Trigger a local run with Gmail alerts:
+
+```bash
+curl -X POST http://127.0.0.1:8000/run \
+  -H 'Content-Type: application/json' \
+  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
+```
+
+For local runs, the app automatically reads `gmail_token.json` from the project root if `GMAIL_TOKEN_JSON` is not exported.
+
+## Gmail Setup
+
+Create an OAuth client in Google Cloud Console, enable Gmail API, download the client JSON as `credentials.json`, then generate the authorized user token:
+
+```bash
+source .venv/bin/activate
+python scripts/generate_gmail_token.py --print-terraform-var
+```
+
+This writes `gmail_token.json`, which is ignored by git. Treat `credentials.json`, `gmail_token.json`, and Terraform state as secrets.
+
+## Terraform Deployment
+
+Create `infra/terraform.tfvars` locally. This file is ignored by git.
+
+```hcl
+aws_region      = "ap-south-1"
+gmail_recipient = "you@example.com"
+gmail_token_json = <<EOT
+{
+  "token": "...",
+  "refresh_token": "...",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "client_id": "...",
+  "client_secret": "...",
+  "scopes": ["https://www.googleapis.com/auth/gmail.send"]
+}
+EOT
+alert_channels = "gmail"
+```
+
+Deploy:
+
+```bash
+cd infra
+terraform init
+terraform fmt
+terraform validate
+terraform apply
+```
+
+See [`docs/deployment.md`](docs/deployment.md) for the full production deployment process.
+
+## Alert Format
 
 ```text
 [WARNING] Unattached EBS volume: vol-123
@@ -52,101 +165,42 @@ Next steps:
 - Check whether backups or AMIs already retain this data before deleting.
 ```
 
-## Local Setup
+## Testing And CI
+
+Run local checks:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-pytest
+python -m compileall src tests scripts
+pytest -q
+terraform -chdir=infra fmt -check -recursive
+terraform -chdir=infra validate
 ```
 
-The tests use fake AWS responses for detector and recommendation logic. Real AWS credentials are not required for unit tests.
+GitHub Actions runs Python compilation, unit tests, Terraform formatting, and Terraform validation on pushes and pull requests.
 
-## Local FastAPI Testing
+## Security Notes
 
-The deployed app is still an EventBridge-triggered Lambda, but you can run a local FastAPI wrapper for manual testing:
+Do not commit real credentials, token files, `.env` files, Terraform state, or `*.tfvars`. The repository `.gitignore` excludes those files by default.
 
-```bash
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-PYTHONPATH=src uvicorn api:api --reload
-```
+For production, prefer AWS Secrets Manager over Terraform variables for Gmail and WhatsApp secrets. Terraform sensitive variables are still stored in Terraform state.
 
-Then test it:
+See [`docs/security.md`](docs/security.md) for production hardening recommendations.
 
-```bash
-curl http://127.0.0.1:8000/health
-curl -X POST http://127.0.0.1:8000/run \
-  -H 'Content-Type: application/json' \
-  -d '{"send_alerts": true, "alert_channels": ["gmail"], "gmail_recipient": "you@example.com"}'
-```
+## Production Readiness Status
 
-For local runs, the app automatically reads `gmail_token.json` from the project root if `GMAIL_TOKEN_JSON` is not exported. Terraform `tfvars` values configure the deployed Lambda only; they are not automatically loaded into your local shell.
+Implemented:
 
-If `/run` returns an `errors` entry like `User not enabled for cost explorer access`, enable AWS Cost Explorer in the billing console for the payer account and make sure the caller has `ce:GetCostAndUsage`. The bot will still return partial findings from detectors that can run.
+- Serverless scheduled execution through EventBridge and Lambda.
+- Read-only AWS inspection permissions.
+- Local FastAPI trigger for manual testing.
+- Partial detector failure handling.
+- Unit tests and CI.
+- Secret-safe git ignore rules.
 
-## Gmail API Setup
+Recommended before broader production use:
 
-1. Create an OAuth client in Google Cloud Console.
-2. Enable the Gmail API.
-3. Download the OAuth client JSON as `credentials.json` in the project root.
-4. Generate an authorized-user token with the `https://www.googleapis.com/auth/gmail.send` scope:
-
-```bash
-python scripts/generate_gmail_token.py --print-terraform-var
-```
-
-5. Store the generated `gmail_token.json` securely and pass its JSON value to Lambda as `GMAIL_TOKEN_JSON` for a demo deployment.
-
-For production, move this secret to AWS Secrets Manager and load it at runtime instead of storing it in Terraform state.
-
-## WhatsApp Cloud API Setup
-
-1. Create or use a Meta developer app with WhatsApp enabled.
-2. Configure a phone number and recipient test number.
-3. Pass these values during Terraform deployment:
-   - `whatsapp_access_token`
-   - `whatsapp_phone_number_id`
-   - `whatsapp_to`
-
-## Deploy With Terraform
-
-```bash
-cd infra
-terraform init
-terraform fmt
-terraform validate
-terraform apply \
-  -var='aws_region=ap-south-1' \
-  -var='gmail_recipient=you@example.com' \
-  -var='gmail_token_json={...}' \
-  -var='whatsapp_access_token=EAAG...' \
-  -var='whatsapp_phone_number_id=1234567890' \
-  -var='whatsapp_to=15551234567'
-```
-
-Terraform packages `src/` and Python dependencies into a Lambda zip, creates the scheduled EventBridge rule, and grants read-only AWS cost/resource permissions.
-
-## Important Security Notes
-
-- Do not commit `.env`, OAuth tokens, Terraform state, or `*.tfvars` containing secrets.
-- Terraform variables marked sensitive still land in Terraform state. This is acceptable for a portfolio demo, but Secrets Manager is the better production path.
-- The Lambda role is read-only for AWS resource and cost inspection. It does not stop, resize, or delete resources automatically.
-
-## Configuration
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `TARGET_AWS_REGION` | Lambda region or `ap-south-1` locally | Region used for EC2, EBS, RDS, and CloudWatch checks. |
-| `LOOKBACK_DAYS` | `7` | Metric and cost lookback period. |
-| `IDLE_CPU_THRESHOLD` | `5` | CPU percentage below which EC2/RDS looks idle. |
-| `IDLE_DB_CONNECTION_THRESHOLD` | `1` | RDS connection threshold. |
-| `SPEND_SPIKE_MULTIPLIER` | `1.5` | Spike multiplier over baseline. |
-| `SPEND_SPIKE_MIN_USD` | `25` | Minimum daily spend before spike alerts trigger. |
-| `HIGH_COST_SERVICE_THRESHOLD_USD` | `100` | Service spend threshold for savings review. |
-| `ALERT_CHANNELS` | `gmail,whatsapp` | Channels to notify. |
-
-## Demo Story
-
-This project demonstrates AWS cost governance, serverless automation, Python service design, Terraform infrastructure, third-party API integration, and actionable FinOps recommendations. It is intentionally built as a guardrail bot: it tells you what changed, why it matters, and the specific action to perform next.
+- Move notification secrets to AWS Secrets Manager.
+- Add structured JSON logs and CloudWatch alarms for failed runs.
+- Store Terraform state in an encrypted remote backend with locking.
+- Add account or environment tags to route alerts to owners.
+- Add integration tests against a sandbox AWS account.
