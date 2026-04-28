@@ -216,5 +216,4 @@ Recommended before broader production use:
 - Move notification secrets to AWS Secrets Manager.
 - Add structured JSON logs and CloudWatch alarms for failed runs.
 - Store Terraform state in an encrypted remote backend with locking.
-- Add account or environment tags to route alerts to owners.
 - Add integration tests against a sandbox AWS account.
