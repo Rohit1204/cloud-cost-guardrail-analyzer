@@ -64,6 +64,7 @@ data "aws_iam_policy_document" "lambda_permissions" {
       "ec2:DescribeInstances",
       "ec2:DescribeVolumes",
       "rds:DescribeDBInstances",
+      "rds:ListTagsForResource",
       "cloudwatch:GetMetricStatistics"
     ]
     resources = ["*"]
@@ -113,6 +114,11 @@ resource "aws_lambda_function" "guardrail" {
       GMAIL_SENDER                    = var.gmail_sender
       GMAIL_RECIPIENT                 = var.gmail_recipient
       GMAIL_TOKEN_JSON                = var.gmail_token_json
+      OWNER_TAG_KEYS                  = var.owner_tag_keys
+      ENVIRONMENT_TAG_KEYS            = var.environment_tag_keys
+      OWNER_EMAIL_MAP                 = var.owner_email_map
+      DEFAULT_OWNER_EMAIL             = var.default_owner_email
+      DEFAULT_ENVIRONMENT             = var.default_environment
       WHATSAPP_ACCESS_TOKEN           = var.whatsapp_access_token
       WHATSAPP_PHONE_NUMBER_ID        = var.whatsapp_phone_number_id
       WHATSAPP_TO                     = var.whatsapp_to

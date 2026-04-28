@@ -20,6 +20,11 @@ class Settings:
     gmail_sender: str | None
     gmail_recipient: str | None
     gmail_token_json: dict[str, Any] | None
+    owner_tag_keys: tuple[str, ...]
+    environment_tag_keys: tuple[str, ...]
+    owner_email_map: dict[str, str]
+    default_owner_email: str | None
+    default_environment: str | None
     whatsapp_access_token: str | None
     whatsapp_phone_number_id: str | None
     whatsapp_to: str | None
@@ -65,7 +70,13 @@ def _channels() -> tuple[str, ...]:
     return tuple(channel.strip().lower() for channel in raw.split(",") if channel.strip())
 
 
+def _csv(name: str, default: str) -> tuple[str, ...]:
+    raw = os.getenv(name, default)
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 def load_settings() -> Settings:
+    owner_email_map = _get_json("OWNER_EMAIL_MAP") or {}
     return Settings(
         aws_region=os.getenv("TARGET_AWS_REGION") or os.getenv("AWS_REGION", "ap-south-1"),
         lookback_days=_get_int("LOOKBACK_DAYS", 7),
@@ -78,6 +89,11 @@ def load_settings() -> Settings:
         gmail_sender=os.getenv("GMAIL_SENDER"),
         gmail_recipient=os.getenv("GMAIL_RECIPIENT"),
         gmail_token_json=_get_json("GMAIL_TOKEN_JSON") or _get_json_file("GMAIL_TOKEN_FILE", "gmail_token.json"),
+        owner_tag_keys=_csv("OWNER_TAG_KEYS", "OwnerEmail,owner_email,Owner,owner,Team,team"),
+        environment_tag_keys=_csv("ENVIRONMENT_TAG_KEYS", "Environment,environment,Env,env,Stage,stage"),
+        owner_email_map={str(key): str(value) for key, value in owner_email_map.items()},
+        default_owner_email=os.getenv("DEFAULT_OWNER_EMAIL"),
+        default_environment=os.getenv("DEFAULT_ENVIRONMENT"),
         whatsapp_access_token=os.getenv("WHATSAPP_ACCESS_TOKEN"),
         whatsapp_phone_number_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
         whatsapp_to=os.getenv("WHATSAPP_TO"),

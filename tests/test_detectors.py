@@ -21,6 +21,11 @@ def settings() -> Settings:
         gmail_sender="me",
         gmail_recipient="owner@example.com",
         gmail_token_json=None,
+        owner_tag_keys=("OwnerEmail", "Owner", "Team"),
+        environment_tag_keys=("Environment", "Env"),
+        owner_email_map={"platform": "platform@example.com"},
+        default_owner_email="default@example.com",
+        default_environment="dev",
         whatsapp_access_token=None,
         whatsapp_phone_number_id=None,
         whatsapp_to=None,
@@ -48,6 +53,10 @@ class FakeVolumeFactory:
                 "Size": 100,
                 "VolumeType": "gp3",
                 "AvailabilityZone": "us-east-1a",
+                "Tags": [
+                    {"Key": "Owner", "Value": "platform"},
+                    {"Key": "Environment", "Value": "dev"},
+                ],
             }
         ]
 
@@ -72,3 +81,5 @@ def test_unattached_ebs_detector_estimates_monthly_savings() -> None:
     assert len(findings) == 1
     assert findings[0].resource_id == "vol-001"
     assert findings[0].estimated_monthly_savings == 8.0
+    assert findings[0].metadata["owner_email"] == "platform@example.com"
+    assert findings[0].metadata["environment"] == "dev"

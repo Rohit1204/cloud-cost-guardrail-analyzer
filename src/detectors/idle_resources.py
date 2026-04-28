@@ -6,13 +6,11 @@ from typing import Any
 from aws_clients import AwsClientFactory
 from config import Settings
 from models import Finding, FindingCategory
+from ownership import ownership_metadata, tags_to_dict
 
 
 def _tag_name(tags: list[dict[str, str]] | None) -> str | None:
-    for tag in tags or []:
-        if tag.get("Key") == "Name":
-            return tag.get("Value")
-    return None
+    return tags_to_dict(tags).get("Name")
 
 
 def detect_idle_ec2(factory: AwsClientFactory, settings: Settings) -> list[Finding]:
@@ -27,7 +25,8 @@ def detect_idle_ec2(factory: AwsClientFactory, settings: Settings) -> list[Findi
         )
         if avg_cpu is None or avg_cpu > settings.idle_cpu_threshold:
             continue
-        name = _tag_name(instance.get("Tags")) or instance_id
+        tags = tags_to_dict(instance.get("Tags"))
+        name = tags.get("Name") or instance_id
         findings.append(
             Finding(
                 category=FindingCategory.IDLE_EC2,
@@ -46,6 +45,7 @@ def detect_idle_ec2(factory: AwsClientFactory, settings: Settings) -> list[Findi
                     "instance_type": instance.get("InstanceType"),
                     "launch_time": str(instance.get("LaunchTime")),
                     "name": name,
+                    **ownership_metadata(tags, settings),
                 },
             )
         )
@@ -60,6 +60,7 @@ def detect_unattached_ebs(factory: AwsClientFactory, settings: Settings) -> list
         age_days = (now - created).days if created else 0
         volume_id = volume["VolumeId"]
         size_gib = float(volume.get("Size", 0))
+        tags = tags_to_dict(volume.get("Tags"))
         # gp3 in us-east-1 is commonly around $0.08/GB-month; this is a practical estimate for alerting.
         estimated_monthly_savings = size_gib * 0.08 if size_gib else None
         findings.append(
@@ -78,6 +79,7 @@ def detect_unattached_ebs(factory: AwsClientFactory, settings: Settings) -> list
                     "size_gib": size_gib,
                     "volume_type": volume.get("VolumeType"),
                     "availability_zone": volume.get("AvailabilityZone"),
+                    **ownership_metadata(tags, settings),
                 },
             )
         )
@@ -104,6 +106,7 @@ def detect_idle_rds(factory: AwsClientFactory, settings: Settings) -> list[Findi
             continue
         if cpu > settings.idle_cpu_threshold or connections > settings.idle_db_connection_threshold:
             continue
+        tags = tags_to_dict(db.get("TagList") or db.get("Tags") or factory.rds_tags(db.get("DBInstanceArn")))
         findings.append(
             Finding(
                 category=FindingCategory.IDLE_RDS,
@@ -123,6 +126,7 @@ def detect_idle_rds(factory: AwsClientFactory, settings: Settings) -> list[Findi
                     "engine": db.get("Engine"),
                     "avg_cpu": cpu,
                     "avg_connections": connections,
+                    **ownership_metadata(tags, settings),
                 },
             )
         )

@@ -21,10 +21,15 @@ def build_body(recommendations: list[Recommendation]) -> str:
         savings = ""
         if finding.estimated_monthly_savings is not None:
             savings = f"\nEstimated savings: ${finding.estimated_monthly_savings:.2f}/month"
+        owner = finding.metadata.get("owner") or "unassigned"
+        owner_email = finding.metadata.get("owner_email") or "default route"
+        environment = finding.metadata.get("environment") or "unspecified"
         lines.extend(
             [
                 f"{index}. [{recommendation.priority.value.upper()}] {finding.title}",
                 f"Resource: {finding.resource_type} / {finding.resource_id} ({finding.region})",
+                f"Owner route: {owner} / {owner_email}",
+                f"Environment: {environment}",
                 f"Why: {finding.description}",
                 f"Action: {recommendation.action}",
                 f"Rationale: {recommendation.rationale}{savings}",

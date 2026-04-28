@@ -56,6 +56,11 @@ class AwsClientFactory:
             instances.extend(page.get("DBInstances", []))
         return instances
 
+    def rds_tags(self, resource_arn: str | None) -> list[dict[str, str]]:
+        if not resource_arn:
+            return []
+        return self.rds.list_tags_for_resource(ResourceName=resource_arn).get("TagList", [])
+
     def average_metric(
         self,
         *,

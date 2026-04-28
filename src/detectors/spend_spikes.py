@@ -6,6 +6,7 @@ from typing import Any
 from aws_clients import AwsClientFactory
 from config import Settings
 from models import Finding, FindingCategory
+from ownership import resolve_owner_email
 
 
 def _amount(result: dict[str, Any]) -> float:
@@ -46,6 +47,11 @@ def detect_spend_spikes(factory: AwsClientFactory, settings: Settings) -> list[F
             metric_value=latest,
             threshold=max(settings.spend_spike_min_usd, baseline * settings.spend_spike_multiplier),
             estimated_monthly_savings=max(increase, 0.0) * 30,
-            metadata={"baseline_daily_cost": baseline, "increase": increase},
+            metadata={
+                "baseline_daily_cost": baseline,
+                "increase": increase,
+                "environment": settings.default_environment,
+                "owner_email": resolve_owner_email(None, settings.default_environment, settings),
+            },
         )
     ]

@@ -12,6 +12,7 @@ The project is built as a production-oriented reference implementation: Terrafor
 - Detect AWS spend spikes using Cost Explorer daily baselines.
 - Identify high-cost services that need deeper savings review.
 - Send human-readable alerts through Gmail API and Meta WhatsApp Cloud API.
+- Route Gmail alerts by AWS owner and environment tags.
 - Return partial results when one AWS detector fails, instead of failing the entire run.
 - Provide concrete remediation actions, commands, owner checks, and priority levels.
 
@@ -137,6 +138,16 @@ gmail_token_json = <<EOT
 }
 EOT
 alert_channels = "gmail"
+owner_tag_keys = "OwnerEmail,owner_email,Owner,owner,Team,team"
+environment_tag_keys = "Environment,environment,Env,env,Stage,stage"
+owner_email_map = <<EOT
+{
+  "platform": "platform@example.com",
+  "prod:payments": "payments-oncall@example.com"
+}
+EOT
+default_owner_email = "cloud-cost-owner@example.com"
+default_environment = "dev"
 ```
 
 Deploy:
@@ -156,6 +167,8 @@ See [`docs/deployment.md`](docs/deployment.md) for the full production deploymen
 ```text
 [WARNING] Unattached EBS volume: vol-123
 Resource: ebs-volume / vol-123 (ap-south-1)
+Owner route: platform / platform@example.com
+Environment: dev
 Why: Volume vol-123 is unattached and has been available for about 10 days.
 Action: Snapshot the volume if data must be retained, then delete the unattached volume.
 Rationale: Detached EBS volumes keep charging while unused. Estimated savings: $8.00/month.
@@ -193,6 +206,7 @@ Implemented:
 - Serverless scheduled execution through EventBridge and Lambda.
 - Read-only AWS inspection permissions.
 - Local FastAPI trigger for manual testing.
+- Owner and environment tag routing for Gmail alerts.
 - Partial detector failure handling.
 - Unit tests and CI.
 - Secret-safe git ignore rules.

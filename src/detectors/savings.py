@@ -6,6 +6,7 @@ from typing import Any
 from aws_clients import AwsClientFactory
 from config import Settings
 from models import Finding, FindingCategory
+from ownership import resolve_owner_email
 
 
 def _service_total(results: list[dict[str, Any]]) -> dict[str, float]:
@@ -44,7 +45,11 @@ def detect_high_cost_services(factory: AwsClientFactory, settings: Settings) -> 
                 metric_name="UnblendedCost",
                 metric_value=total,
                 threshold=settings.high_cost_service_threshold_usd,
-                metadata={"lookback_days": settings.lookback_days},
+                metadata={
+                    "lookback_days": settings.lookback_days,
+                    "environment": settings.default_environment,
+                    "owner_email": resolve_owner_email(None, settings.default_environment, settings),
+                },
             )
         )
     return findings

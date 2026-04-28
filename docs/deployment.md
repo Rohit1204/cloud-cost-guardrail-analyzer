@@ -71,6 +71,16 @@ gmail_token_json = <<EOT
   "scopes": ["https://www.googleapis.com/auth/gmail.send"]
 }
 EOT
+owner_tag_keys       = "OwnerEmail,Owner,Team"
+environment_tag_keys = "Environment,Stage"
+owner_email_map = <<EOT
+{
+  "platform": "platform@example.com",
+  "prod:payments": "payments-oncall@example.com"
+}
+EOT
+default_owner_email = "cloud-cost-owner@example.com"
+default_environment = "dev"
 ```
 
 Add WhatsApp variables only when ready:

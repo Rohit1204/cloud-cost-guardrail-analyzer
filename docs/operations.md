@@ -80,6 +80,21 @@ Action:
 - Confirm the recipient is allowed in the Meta test environment.
 - Check Meta Graph API response in Lambda logs.
 
+### Alert sent to default owner
+
+Symptom:
+
+```text
+Owner route: unassigned / cloud-cost-owner@example.com
+```
+
+Action:
+
+- Add `OwnerEmail`, `Owner`, or `Team` tags to the resource.
+- Add `Environment` or `Stage` tags to improve context.
+- Add an `OWNER_EMAIL_MAP` entry for team names that are not email addresses.
+- Keep `DEFAULT_OWNER_EMAIL` set to a monitored mailbox so untagged findings are not dropped.
+
 ## Alert Triage
 
 For every alert:

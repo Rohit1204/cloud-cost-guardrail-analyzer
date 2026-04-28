@@ -15,6 +15,7 @@ flowchart LR
   AwsClients --> EC2["EC2 and EBS"]
   AwsClients --> RDS["RDS"]
   App --> Detectors["detectors"]
+  Detectors --> Ownership["ownership.py"]
   Detectors --> Recommendations["recommendations.py"]
   Recommendations --> Gmail["Gmail notifier"]
   Recommendations --> WhatsApp["WhatsApp notifier"]
@@ -26,9 +27,10 @@ flowchart LR
 2. `config.py` loads thresholds, target region, notification channels, and tokens from environment variables or local token files.
 3. `aws_clients.py` creates boto3 clients and wraps paginated AWS API calls.
 4. Detector modules inspect idle resources, spend spikes, and high-cost services.
-5. `app.py` catches detector-level failures and returns partial results with an `errors` array.
-6. `recommendations.py` maps findings to priority, rationale, action, and next steps.
-7. Notifier modules send the final message to configured channels.
+5. `ownership.py` enriches resource findings with owner, owner email, and environment metadata from tags.
+6. `app.py` catches detector-level failures and returns partial results with an `errors` array.
+7. `recommendations.py` maps findings to priority, rationale, action, and next steps.
+8. Gmail alerts are grouped by resolved owner email; WhatsApp receives the combined alert stream.
 
 ## Failure Model
 
@@ -44,6 +46,7 @@ In scope:
 - Human-readable alerts.
 - Local API testing.
 - Terraform-managed AWS infrastructure.
+- Owner and environment tag routing for Gmail alerts.
 
 Out of scope for the current version:
 

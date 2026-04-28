@@ -18,6 +18,11 @@ Configuration is supplied through Terraform variables for deployed Lambda and en
 | `GMAIL_RECIPIENT` | empty | Email alert recipient. |
 | `GMAIL_TOKEN_JSON` | empty | Authorized-user Gmail token JSON. |
 | `GMAIL_TOKEN_FILE` | `gmail_token.json` | Local token file used when `GMAIL_TOKEN_JSON` is absent. |
+| `OWNER_TAG_KEYS` | `OwnerEmail,owner_email,Owner,owner,Team,team` | Tag keys used to find owner or team routing values. |
+| `ENVIRONMENT_TAG_KEYS` | `Environment,environment,Env,env,Stage,stage` | Tag keys used to find environment context. |
+| `OWNER_EMAIL_MAP` | `{}` | JSON map from owner, environment, or `environment:owner` to email address. |
+| `DEFAULT_OWNER_EMAIL` | empty | Fallback email route when no owner route is resolved. |
+| `DEFAULT_ENVIRONMENT` | empty | Fallback environment label for untagged account-level findings. |
 | `WHATSAPP_ACCESS_TOKEN` | empty | Meta WhatsApp Cloud API access token. |
 | `WHATSAPP_PHONE_NUMBER_ID` | empty | Meta phone number ID. |
 | `WHATSAPP_TO` | empty | Recipient phone number in international format without `+`. |
@@ -40,6 +45,11 @@ Configuration is supplied through Terraform variables for deployed Lambda and en
 | `gmail_sender` | `me` | Gmail sender user ID. |
 | `gmail_recipient` | empty | Gmail recipient address. |
 | `gmail_token_json` | empty | Gmail OAuth token JSON. Sensitive. |
+| `owner_tag_keys` | `OwnerEmail,owner_email,Owner,owner,Team,team` | Comma-separated tag keys used for owner routing. |
+| `environment_tag_keys` | `Environment,environment,Env,env,Stage,stage` | Comma-separated tag keys used for environment context. |
+| `owner_email_map` | `{}` | JSON owner-to-email routing map. |
+| `default_owner_email` | empty | Fallback owner route. |
+| `default_environment` | empty | Fallback environment label. |
 | `whatsapp_access_token` | empty | WhatsApp access token. Sensitive. |
 | `whatsapp_phone_number_id` | empty | WhatsApp phone number ID. |
 | `whatsapp_to` | empty | WhatsApp recipient number. |
@@ -65,3 +75,29 @@ high_cost_service_threshold_usd    = 100
 ```
 
 Tune thresholds based on account size and expected daily spend.
+
+## Owner Routing
+
+Resource-level findings read AWS tags and add `owner`, `owner_email`, and `environment` metadata when possible. Gmail alerts are grouped by `owner_email`, so different teams receive only their own findings.
+
+Supported map keys:
+
+- Direct owner or team name, for example `"platform"`.
+- Environment name, for example `"prod"`.
+- Environment and owner pair, for example `"prod:payments"`.
+- Raw email address in an owner tag, for example `OwnerEmail=team@example.com`.
+
+Example:
+
+```hcl
+owner_tag_keys       = "OwnerEmail,Owner,Team"
+environment_tag_keys = "Environment,Stage"
+owner_email_map = <<EOT
+{
+  "platform": "platform@example.com",
+  "prod:payments": "payments-oncall@example.com"
+}
+EOT
+default_owner_email = "cloud-cost-owner@example.com"
+default_environment = "dev"
+```

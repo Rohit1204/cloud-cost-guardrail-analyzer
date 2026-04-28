@@ -77,6 +77,36 @@ variable "gmail_token_json" {
   sensitive   = true
 }
 
+variable "owner_tag_keys" {
+  description = "Comma-separated AWS tag keys used to identify the owner or team for alert routing."
+  type        = string
+  default     = "OwnerEmail,owner_email,Owner,owner,Team,team"
+}
+
+variable "environment_tag_keys" {
+  description = "Comma-separated AWS tag keys used to identify environment for alert context and routing."
+  type        = string
+  default     = "Environment,environment,Env,env,Stage,stage"
+}
+
+variable "owner_email_map" {
+  description = "JSON map from owner, environment, or environment:owner to alert email address."
+  type        = string
+  default     = "{}"
+}
+
+variable "default_owner_email" {
+  description = "Fallback email route when no owner tag or owner map entry is found."
+  type        = string
+  default     = ""
+}
+
+variable "default_environment" {
+  description = "Fallback environment label for untagged account-level findings."
+  type        = string
+  default     = ""
+}
+
 variable "whatsapp_access_token" {
   description = "Meta WhatsApp Cloud API access token. Sensitive and stored in Terraform state if set here."
   type        = string
