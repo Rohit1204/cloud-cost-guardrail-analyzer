@@ -223,7 +223,7 @@ Static previews of this app’s UI live in [`docs/assets/`](docs/assets/) so the
 
 ![Sign-in — Cloud Cost Guardrail](docs/assets/login-screen-v2.svg)
 
-![Dashboard — Cloud Cost Guardrail](docs/assets/dashboard-screen-v2.svg)
+![Dashboard — Cloud Cost Guardrail](docs/assets/dashboard-screen-v3.svg)
 
 The illustrations above match the **Welcome back** login (gradient-style background, three feature tiles, Google button) and the **dashboard** shell (header with live badge and actions, four summary cards, cost analyzer chart, recommendations column). For documentation or sharing, you can also screenshot:
 
