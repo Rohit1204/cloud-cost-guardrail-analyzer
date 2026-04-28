@@ -193,6 +193,30 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
 ```
 
+The frontend is configured as a static export, so `npm run build` writes deployable static files to `frontend/out/`.
+
+Build with the deployed API Gateway endpoint:
+
+```bash
+cd frontend
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+```
+
+Deploy the generated files to S3:
+
+```bash
+aws s3 sync out/ s3://your-frontend-bucket --delete
+```
+
+Recommended production hosting:
+
+```text
+Browser -> CloudFront -> S3 static frontend
+Browser -> API Gateway -> Lambda backend
+```
+
+After CloudFront is created, add its domain to `frontend_allowed_origins` and apply Terraform again so API Gateway CORS allows the hosted frontend.
+
 ## Local FastAPI Testing
 
 ```bash

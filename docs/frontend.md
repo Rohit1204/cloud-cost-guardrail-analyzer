@@ -53,6 +53,31 @@ For deployed AWS:
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
 ```
 
+## Static Export
+
+The frontend is configured for static hosting through `output: "export"` in `frontend/next.config.ts`. This means the Next.js build produces static HTML, CSS, and JavaScript that can be hosted from S3 and served through CloudFront. There is no Node.js server or ECS service required for the current frontend.
+
+Build the static frontend with the deployed API Gateway endpoint:
+
+```bash
+cd frontend
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+```
+
+The generated static files are written to:
+
+```text
+frontend/out/
+```
+
+Deploy `frontend/out/` to S3:
+
+```bash
+aws s3 sync out/ s3://your-frontend-bucket --delete
+```
+
+For production, place CloudFront in front of the S3 bucket and add the CloudFront domain to `frontend_allowed_origins` so browser calls to API Gateway pass CORS.
+
 ## State Management
 
 The frontend intentionally avoids a global state library. State is local and explicit:

@@ -176,6 +176,19 @@ For deployed API Gateway, set `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
 ```
 
+The frontend is configured for static export with `output: "export"` in `frontend/next.config.ts`. Build it for S3/CloudFront with the API Gateway URL embedded as public frontend config:
+
+```bash
+cd frontend
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+```
+
+The deployable static artifact is written to `frontend/out/`. Upload that folder to an S3 static website bucket and serve it through CloudFront:
+
+```bash
+aws s3 sync out/ s3://your-frontend-bucket --delete
+```
+
 The dashboard covers cost summary cards, monthly cost charts, top service drivers, owner-aware recommendations, backend health, and the alert delivery workflow.
 
 See [`docs/frontend.md`](docs/frontend.md) for the frontend architecture, UX structure, and test coverage.

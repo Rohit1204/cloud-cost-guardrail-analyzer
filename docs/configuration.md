@@ -87,7 +87,18 @@ The Next.js app reads its backend URL from `NEXT_PUBLIC_API_BASE_URL`:
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-Use the local FastAPI URL during development or the Terraform `api_gateway_endpoint` output after deployment.
+Use the local FastAPI URL during development or the Terraform `api_gateway_endpoint` output after deployment:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com
+```
+
+For static export, this value is read at build time and embedded into the generated frontend files in `frontend/out/`:
+
+```bash
+cd frontend
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+```
 
 ## Owner Routing
 
