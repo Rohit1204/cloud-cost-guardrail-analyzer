@@ -3,7 +3,6 @@
 import { RefreshCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useCostSummary, useHealth, useRecommendations } from "@/hooks/useGuardrailApi";
-import { getApiBaseUrl } from "@/lib/api";
 import { AlertRunner } from "./AlertRunner";
 import { CostCharts } from "./CostCharts";
 import { DetectorErrors } from "./DetectorErrors";
@@ -45,7 +44,6 @@ export function Dashboard() {
             <p className="mt-3 max-w-2xl text-base text-slate-600">
               Analyze AWS spend, surface idle resources, and send owner-aware Gmail or WhatsApp alerts from one responsive frontend.
             </p>
-            <p className="mt-3 text-xs text-slate-500">API: {getApiBaseUrl()}</p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row lg:items-center">
             <select

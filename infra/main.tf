@@ -122,6 +122,7 @@ resource "aws_lambda_function" "guardrail" {
       ALERT_CHANNELS                  = var.alert_channels
       GMAIL_SENDER                    = var.gmail_sender
       GMAIL_RECIPIENT                 = var.gmail_recipient
+      ALLOWED_ALERT_RECIPIENTS        = var.allowed_alert_recipients
       GMAIL_TOKEN_JSON                = var.gmail_token_json
       OWNER_TAG_KEYS                  = var.owner_tag_keys
       ENVIRONMENT_TAG_KEYS            = var.environment_tag_keys

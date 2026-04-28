@@ -191,6 +191,7 @@ Set `NEXT_PUBLIC_API_BASE_URL` to the local FastAPI URL or the deployed API Gate
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
 ```
 
 The frontend is configured as a static export, so `npm run build` writes deployable static files to `frontend/out/`.
@@ -199,7 +200,9 @@ Build with the deployed API Gateway endpoint:
 
 ```bash
 cd frontend
-NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" \
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS="you@example.com,cloud-cost-owner@example.com" \
+npm run build
 ```
 
 Deploy the generated files to S3:

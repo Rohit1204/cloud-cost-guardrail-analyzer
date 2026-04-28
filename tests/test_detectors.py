@@ -20,6 +20,7 @@ def settings() -> Settings:
         alert_channels=("gmail", "whatsapp"),
         gmail_sender="me",
         gmail_recipient="owner@example.com",
+        allowed_alert_recipients=("owner@example.com",),
         gmail_token_json=None,
         owner_tag_keys=("OwnerEmail", "Owner", "Team"),
         environment_tag_keys=("Environment", "Env"),

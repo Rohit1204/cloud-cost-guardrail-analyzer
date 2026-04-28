@@ -16,6 +16,7 @@ Configuration is supplied through Terraform variables for deployed Lambda and en
 | `ALERT_CHANNELS` | `gmail,whatsapp` | Comma-separated notification channels. |
 | `GMAIL_SENDER` | `me` in Terraform | Gmail user ID. `me` means the OAuth-authenticated user. |
 | `GMAIL_RECIPIENT` | empty | Email alert recipient. |
+| `ALLOWED_ALERT_RECIPIENTS` | `GMAIL_RECIPIENT` locally, empty in Terraform unless set | Comma-separated allowlist for Gmail recipient overrides accepted by `/alerts/run`. |
 | `GMAIL_TOKEN_JSON` | empty | Authorized-user Gmail token JSON. |
 | `GMAIL_TOKEN_FILE` | `gmail_token.json` | Local token file used when `GMAIL_TOKEN_JSON` is absent. |
 | `OWNER_TAG_KEYS` | `OwnerEmail,owner_email,Owner,owner,Team,team` | Tag keys used to find owner or team routing values. |
@@ -45,6 +46,7 @@ Configuration is supplied through Terraform variables for deployed Lambda and en
 | `alert_channels` | `gmail,whatsapp` | Enabled notification channels. |
 | `gmail_sender` | `me` | Gmail sender user ID. |
 | `gmail_recipient` | empty | Gmail recipient address. |
+| `allowed_alert_recipients` | empty | Comma-separated allowlist of Gmail recipient overrides accepted by the alert API. |
 | `gmail_token_json` | empty | Gmail OAuth token JSON. Sensitive. |
 | `owner_tag_keys` | `OwnerEmail,owner_email,Owner,owner,Team,team` | Comma-separated tag keys used for owner routing. |
 | `environment_tag_keys` | `Environment,environment,Env,env,Stage,stage` | Comma-separated tag keys used for environment context. |
@@ -85,19 +87,23 @@ The Next.js app reads its backend URL from `NEXT_PUBLIC_API_BASE_URL`:
 
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
 ```
 
 Use the local FastAPI URL during development or the Terraform `api_gateway_endpoint` output after deployment:
 
 ```bash
 NEXT_PUBLIC_API_BASE_URL=https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
 ```
 
 For static export, this value is read at build time and embedded into the generated frontend files in `frontend/out/`:
 
 ```bash
 cd frontend
-NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" \
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS="you@example.com,cloud-cost-owner@example.com" \
+npm run build
 ```
 
 ## Owner Routing

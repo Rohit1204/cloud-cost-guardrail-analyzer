@@ -19,6 +19,7 @@ class Settings:
     alert_channels: tuple[str, ...]
     gmail_sender: str | None
     gmail_recipient: str | None
+    allowed_alert_recipients: tuple[str, ...]
     gmail_token_json: dict[str, Any] | None
     owner_tag_keys: tuple[str, ...]
     environment_tag_keys: tuple[str, ...]
@@ -88,6 +89,7 @@ def load_settings() -> Settings:
         alert_channels=_channels(),
         gmail_sender=os.getenv("GMAIL_SENDER"),
         gmail_recipient=os.getenv("GMAIL_RECIPIENT"),
+        allowed_alert_recipients=_csv("ALLOWED_ALERT_RECIPIENTS", os.getenv("GMAIL_RECIPIENT", "")),
         gmail_token_json=_get_json("GMAIL_TOKEN_JSON") or _get_json_file("GMAIL_TOKEN_FILE", "gmail_token.json"),
         owner_tag_keys=_csv("OWNER_TAG_KEYS", "OwnerEmail,owner_email,Owner,owner,Team,team"),
         environment_tag_keys=_csv("ENVIRONMENT_TAG_KEYS", "Environment,environment,Env,env,Stage,stage"),

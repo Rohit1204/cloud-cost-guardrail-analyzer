@@ -19,6 +19,7 @@ def settings() -> Settings:
         alert_channels=("gmail",),
         gmail_sender="me",
         gmail_recipient="owner@example.com",
+        allowed_alert_recipients=("owner@example.com", "team@example.com"),
         gmail_token_json=None,
         owner_tag_keys=("OwnerEmail", "Owner", "Team"),
         environment_tag_keys=("Environment", "Env"),
@@ -359,3 +360,19 @@ def test_lambda_handler_rejects_invalid_month_filter(monkeypatch) -> None:
 
     assert response["statusCode"] == 400
     assert "between 1 and 12" in response["body"]
+
+
+def test_lambda_handler_rejects_disallowed_gmail_recipient(monkeypatch) -> None:
+    monkeypatch.setattr(app, "load_settings", settings)
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/alerts/run",
+            "body": '{"gmail_recipient": "attacker@example.com", "alert_channels": ["gmail"]}',
+            "requestContext": {"http": {"method": "POST", "path": "/alerts/run"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 400
+    assert "allowed alert recipients" in response["body"]

@@ -10,6 +10,13 @@ type Props = {
   months: number;
 };
 
+function allowedRecipients(): string[] {
+  return (process.env.NEXT_PUBLIC_ALLOWED_ALERT_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim())
+    .filter(Boolean);
+}
+
 function statusTone(status: string): "green" | "amber" | "red" | "slate" {
   if (status === "delivered") {
     return "green";
@@ -24,7 +31,8 @@ function statusTone(status: string): "green" | "amber" | "red" | "slate" {
 }
 
 export function AlertRunner({ months }: Props) {
-  const [gmailRecipient, setGmailRecipient] = useState("");
+  const recipientOptions = allowedRecipients();
+  const [gmailRecipient, setGmailRecipient] = useState(recipientOptions[0] ?? "");
   const [channels, setChannels] = useState({ gmail: true, whatsapp: false });
   const [result, setResult] = useState<AlertRunResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -57,16 +65,28 @@ export function AlertRunner({ months }: Props) {
       <SectionHeader eyebrow="Notify" title="Run alerts" />
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="space-y-4">
-          <div className="space-y-2">
-            <FieldLabel>Gmail recipient override</FieldLabel>
-            <input
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-blue-500/20 transition focus:border-blue-500 focus:ring-4"
-              onChange={(event) => setGmailRecipient(event.target.value)}
-              placeholder="you@example.com"
-              type="email"
-              value={gmailRecipient}
-            />
-          </div>
+          {recipientOptions.length > 0 ? (
+            <div className="space-y-2">
+              <FieldLabel>Allowed Gmail recipient</FieldLabel>
+              <select
+                aria-label="Allowed Gmail recipient"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none ring-blue-500/20 transition focus:border-blue-500 focus:ring-4"
+                onChange={(event) => setGmailRecipient(event.target.value)}
+                value={gmailRecipient}
+              >
+                {recipientOptions.map((email) => (
+                  <option key={email} value={email}>
+                    {email}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">Only approved recipients can be selected. The backend enforces the same allowlist.</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Configure `NEXT_PUBLIC_ALLOWED_ALERT_EMAILS` to show approved recipient choices.
+            </div>
+          )}
 
           <div className="space-y-2">
             <FieldLabel>Channels</FieldLabel>
@@ -87,7 +107,7 @@ export function AlertRunner({ months }: Props) {
 
           <button
             className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            disabled={loading || (!channels.gmail && !channels.whatsapp)}
+            disabled={loading || (!channels.gmail && !channels.whatsapp) || (channels.gmail && recipientOptions.length === 0)}
             onClick={submitAlertRun}
             type="button"
           >

@@ -76,6 +76,12 @@ variable "gmail_recipient" {
   default     = ""
 }
 
+variable "allowed_alert_recipients" {
+  description = "Comma-separated allowlist of Gmail recipient overrides accepted by the alert API."
+  type        = string
+  default     = ""
+}
+
 variable "gmail_token_json" {
   description = "Gmail OAuth authorized-user token JSON. Sensitive and stored in Terraform state if set here."
   type        = string

@@ -387,7 +387,11 @@ def _cost_months_from_value(raw_value: Any, default: int = 1) -> int:
 
 def _apply_request_overrides(settings: Settings, body: dict[str, Any]) -> Settings:
     if body.get("gmail_recipient"):
-        settings = replace(settings, gmail_recipient=str(body["gmail_recipient"]))
+        requested_recipient = str(body["gmail_recipient"]).strip().lower()
+        allowed_recipients = {recipient.strip().lower() for recipient in settings.allowed_alert_recipients if recipient.strip()}
+        if requested_recipient not in allowed_recipients:
+            raise ValueError("gmail_recipient is not in the allowed alert recipients list")
+        settings = replace(settings, gmail_recipient=str(body["gmail_recipient"]).strip())
     if body.get("alert_channels"):
         settings = replace(settings, alert_channels=tuple(str(channel).lower() for channel in body["alert_channels"]))
     return settings
@@ -483,7 +487,10 @@ def _handle_http_api_event(event: dict[str, Any]) -> dict[str, Any]:
         except ValueError as exc:
             return _json_response(400, {"error": str(exc)})
 
-        settings = _apply_request_overrides(settings, body)
+        try:
+            settings = _apply_request_overrides(settings, body)
+        except ValueError as exc:
+            return _json_response(400, {"error": str(exc)})
         try:
             cost_months = _cost_months_from_value(body.get("cost_months"))
         except ValueError as exc:

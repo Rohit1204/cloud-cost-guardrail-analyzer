@@ -17,7 +17,7 @@ The dashboard has one responsive page with four main areas:
 - Header and controls: backend health, target region, selected analysis window, refresh action, and active API base URL.
 - Cost analyzer: month-to-date cost cards, total window cost, monthly trend chart, and top service bar chart.
 - Recommendations: prioritized cards with owner/environment context and remediation steps.
-- Alert workflow: channel selection, optional Gmail recipient override, alert run button, delivery status, and notification result details.
+- Alert workflow: channel selection, approved Gmail recipient dropdown, alert run button, delivery status, and notification result details.
 
 The UI handles loading, empty, error, retry, and partial-data states. If one detector fails, the page still renders available cost and recommendation data and displays detector errors separately.
 
@@ -45,13 +45,17 @@ Set the backend URL in `frontend/.env.local`:
 
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
 ```
 
 For deployed AWS:
 
 ```bash
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
 ```
+
+The dashboard does not render the API Gateway URL in the UI. The URL is still present in the compiled JavaScript because browser apps must know where to send requests. Do not rely on hiding the URL for security; protect the API with CORS, recipient allowlists, authentication, throttling, and least-privilege IAM.
 
 ## Static Export
 
@@ -61,7 +65,9 @@ Build the static frontend with the deployed API Gateway endpoint:
 
 ```bash
 cd frontend
-NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" \
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS="you@example.com,cloud-cost-owner@example.com" \
+npm run build
 ```
 
 The generated static files are written to:
@@ -77,6 +83,20 @@ aws s3 sync out/ s3://your-frontend-bucket --delete
 ```
 
 For production, place CloudFront in front of the S3 bucket and add the CloudFront domain to `frontend_allowed_origins` so browser calls to API Gateway pass CORS.
+
+## Recipient Allowlist
+
+The frontend only allows selecting emails from `NEXT_PUBLIC_ALLOWED_ALERT_EMAILS`, but that is a UX control, not a security boundary. The backend also validates `gmail_recipient` against `ALLOWED_ALERT_RECIPIENTS` and rejects disallowed overrides with `400`.
+
+Keep these lists aligned:
+
+```bash
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
+```
+
+```hcl
+allowed_alert_recipients = "you@example.com,cloud-cost-owner@example.com"
+```
 
 ## State Management
 

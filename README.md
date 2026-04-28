@@ -156,7 +156,7 @@ The frontend shows:
 - Executive cost cards for month-to-date cost, selected window total, open recommendations, and notification readiness.
 - Monthly cost trend and top service driver charts from `/costs/summary`.
 - Owner-aware recommendation cards from `/recommendations`, including priority, resource, environment, rationale, estimated savings, and next steps.
-- Alert workflow controls for `/alerts/run`, including channel selection, Gmail recipient override, delivery status, and notification results.
+- Alert workflow controls for `/alerts/run`, including channel selection, an approved Gmail recipient dropdown, delivery status, and notification results.
 - Loading, empty, error, retry, and partial-data states so Cost Explorer or detector failures do not break the whole page.
 
 The frontend is intentionally simple to understand: no TanStack Query or heavy global state. Data loading is handled through typed API client functions and small custom hooks built with `useEffect`, `useState`, `AbortController`, and retry helpers.
@@ -174,13 +174,16 @@ For deployed API Gateway, set `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local
 
 ```bash
 NEXT_PUBLIC_API_BASE_URL=https://your-api-id.execute-api.ap-south-1.amazonaws.com
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS=you@example.com,cloud-cost-owner@example.com
 ```
 
 The frontend is configured for static export with `output: "export"` in `frontend/next.config.ts`. Build it for S3/CloudFront with the API Gateway URL embedded as public frontend config:
 
 ```bash
 cd frontend
-NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" npm run build
+NEXT_PUBLIC_API_BASE_URL="https://xyqayo8x14.execute-api.ap-south-1.amazonaws.com" \
+NEXT_PUBLIC_ALLOWED_ALERT_EMAILS="you@example.com,cloud-cost-owner@example.com" \
+npm run build
 ```
 
 The deployable static artifact is written to `frontend/out/`. Upload that folder to an S3 static website bucket and serve it through CloudFront:
@@ -211,6 +214,7 @@ Create `infra/terraform.tfvars` locally. This file is ignored by git.
 ```hcl
 aws_region      = "ap-south-1"
 gmail_recipient = "you@example.com"
+allowed_alert_recipients = "you@example.com,cloud-cost-owner@example.com"
 gmail_token_json = <<EOT
 {
   "token": "...",

@@ -18,6 +18,7 @@ def settings() -> Settings:
         alert_channels=("gmail",),
         gmail_sender="me",
         gmail_recipient="default@example.com",
+        allowed_alert_recipients=("default@example.com",),
         gmail_token_json={"token": "fake"},
         owner_tag_keys=("OwnerEmail", "Owner", "Team"),
         environment_tag_keys=("Environment", "Env"),
