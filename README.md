@@ -217,20 +217,19 @@ The dashboard covers cost summary cards, invoice estimates, billing due reminder
 
 See [`docs/frontend.md`](docs/frontend.md) for the frontend architecture, UX structure, and test coverage.
 
-## Portfolio Screenshots
+## Application screenshots
 
-Add current screenshots after running the frontend locally or deploying it:
+Static previews of this app’s UI live in [`docs/assets/`](docs/assets/) so the README can show the current layout without checking in large PNGs. Replace them with your own exports if you prefer pixel-accurate captures.
 
-![Google login screen](docs/assets/login-screen.svg)
+![Sign-in — Cloud Cost Guardrail](docs/assets/login-screen.svg)
 
-![Cost guardrail dashboard](docs/assets/dashboard-screen.svg)
+![Dashboard — Cloud Cost Guardrail](docs/assets/dashboard-screen.svg)
 
-Recommended real captures for a portfolio README:
+The illustrations above match the **Welcome back** login (gradient-style background, three feature tiles, Google button) and the **dashboard** shell (header with live badge and actions, four summary cards, cost analyzer chart, recommendations column). For documentation or sharing, you can also screenshot:
 
-- Login page: gradient background, feature tiles, and Google sign-in (or local-dev bypass when `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is unset).
-- Dashboard overview showing cost cards, invoice estimate, charts, and recommendations.
-- Recommendation workflow showing filters and status buttons.
-- Alert workflow showing approved Gmail recipients and delivery status.
+- The full dashboard after load (billing strip, charts, lists).
+- Recommendation filters and status workflow.
+- Alert runner with approved recipients and delivery result.
 
 ## Gmail Setup
 
