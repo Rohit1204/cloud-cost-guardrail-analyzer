@@ -16,6 +16,7 @@ from app import run_guardrail
 from auth import AuthError
 from auth import verify_google_user
 from aws_clients import AwsClientFactory
+from billing_console import billing_console_federation_url
 from config import Settings
 from config import load_settings
 from recommendation_status import update_status
@@ -64,7 +65,20 @@ def health(user: dict[str, object] | None = Depends(require_user)) -> dict[str, 
         "whatsapp_configured": bool(
             settings.whatsapp_access_token and settings.whatsapp_phone_number_id and settings.whatsapp_to
         ),
+        "billing_console_federation_enabled": bool(settings.billing_console_role_arn),
     }
+
+
+@api.get("/billing/console-url")
+def billing_console_url(user: dict[str, object] | None = Depends(require_user)) -> dict[str, str]:
+    settings = load_settings()
+    try:
+        url = billing_console_federation_url(settings, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"url": url}
 
 
 @api.get("/costs/summary")

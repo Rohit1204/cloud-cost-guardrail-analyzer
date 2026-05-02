@@ -1,8 +1,16 @@
 "use client";
 
 import { BarChart3, Bell, Loader2, Lock, ShieldCheck } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { clearAuthSession, getGoogleClientId, getStoredUser, storeGoogleCredential, type AuthUser } from "@/lib/auth";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  bootstrapGoogleAuthSession,
+  clearAuthSession,
+  getAuthAllowedEmailSet,
+  getGoogleClientId,
+  parseGoogleCredential,
+  storeAuthSession,
+  type AuthUser,
+} from "@/lib/auth";
 import { Dashboard } from "./Dashboard";
 import { Card } from "./ui";
 
@@ -66,10 +74,13 @@ const featureItems = [
 
 export function LoginGate() {
   const googleButtonRef = useRef<HTMLDivElement>(null);
-  const [user, setUser] = useState<AuthUser | null>(() => getStoredUser());
+  const boot = useMemo(() => bootstrapGoogleAuthSession(), []);
+  const [user, setUser] = useState<AuthUser | null>(boot.user);
+  const [gateError, setGateError] = useState<string | null>(boot.gateError);
   const [error, setError] = useState<string | null>(null);
   const [gsiReady, setGsiReady] = useState(false);
   const clientId = getGoogleClientId();
+  const displayError = error ?? gateError;
 
   useEffect(() => {
     if (!clientId || user) {
@@ -88,8 +99,30 @@ export function LoginGate() {
             setError("Google did not return a sign-in credential.");
             return;
           }
+          const parsed = parseGoogleCredential(response.credential);
+          if (!parsed.email?.trim()) {
+            setError("Google did not return an email on this account.");
+            return;
+          }
+
+          const allowed = getAuthAllowedEmailSet();
+          if (allowed.size === 0) {
+            setGateError(null);
+            setError("Sign-in is not configured.");
+            return;
+          }
+
+          const normalized = parsed.email.trim().toLowerCase();
+          if (!allowed.has(normalized)) {
+            setGateError(null);
+            setError("This email is not authorized to sign in.");
+            return;
+          }
+
           setError(null);
-          setUser(storeGoogleCredential(response.credential));
+          setGateError(null);
+          storeAuthSession(response.credential, parsed);
+          setUser(parsed);
         },
       });
       window.google.accounts.id.renderButton(googleButtonRef.current, {
@@ -105,6 +138,8 @@ export function LoginGate() {
   function signOut() {
     clearAuthSession();
     setUser(null);
+    setGateError(null);
+    setError(null);
   }
 
   if (user) {
@@ -189,10 +224,10 @@ export function LoginGate() {
           )}
         </div>
 
-        {error ? (
-          <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 transition-opacity duration-200" role="alert">
-            {error}
-          </p>
+        {displayError ? (
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 transition-opacity duration-200" role="alert">
+            <p className="text-sm font-medium text-red-900">{displayError}</p>
+          </div>
         ) : null}
 
         {!clientId ? (

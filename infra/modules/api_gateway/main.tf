@@ -41,6 +41,12 @@ resource "aws_apigatewayv2_route" "costs_summary" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "billing_console_url" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /billing/console-url"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "recommendations" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "GET /recommendations"

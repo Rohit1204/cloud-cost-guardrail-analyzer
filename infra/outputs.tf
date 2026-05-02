@@ -42,3 +42,8 @@ output "frontend_deploy_command" {
   description = "Command to upload the built frontend/out directory to S3."
   value       = "aws s3 sync ../frontend/out/ s3://${module.frontend_static.bucket_name}/ --delete"
 }
+
+output "billing_console_role_arn" {
+  description = "IAM role used for federated Billing console URLs (STS + console federation)."
+  value       = module.lambda.billing_console_role_arn
+}

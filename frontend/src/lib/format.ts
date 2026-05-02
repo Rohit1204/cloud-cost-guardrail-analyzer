@@ -1,9 +1,12 @@
 export function formatMoney(value: number | null | undefined, currency = "USD"): string {
+  const v = value ?? 0;
+  const abs = Math.abs(v);
+  const maximumFractionDigits = abs >= 100 ? 0 : abs >= 1 ? 2 : 4;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
-    maximumFractionDigits: value && value >= 100 ? 0 : 2,
-  }).format(value ?? 0);
+    maximumFractionDigits,
+  }).format(v);
 }
 
 export function formatDate(value: string | null | undefined): string {

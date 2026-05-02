@@ -8,8 +8,7 @@ locals {
 data "aws_caller_identity" "current" {}
 
 module "lambda" {
-  source = "./modules/lambda"
-
+  source                          = "./modules/lambda"
   project_name                    = var.project_name
   project_root                    = local.project_root
   build_dir                       = local.lambda_build_dir
@@ -40,8 +39,7 @@ module "lambda" {
 }
 
 module "api_gateway" {
-  source = "./modules/api_gateway"
-
+  source                          = "./modules/api_gateway"
   project_name                    = var.project_name
   lambda_function_name            = module.lambda.function_name
   lambda_invoke_arn               = module.lambda.invoke_arn
@@ -51,8 +49,7 @@ module "api_gateway" {
 }
 
 module "schedule" {
-  source = "./modules/schedule"
-
+  source               = "./modules/schedule"
   project_name         = var.project_name
   schedule_expression  = var.schedule_expression
   lambda_function_arn  = module.lambda.function_arn
@@ -60,8 +57,7 @@ module "schedule" {
 }
 
 module "frontend_static" {
-  source = "./modules/frontend_static"
-
+  source       = "./modules/frontend_static"
   project_name = var.project_name
   bucket_name  = local.frontend_bucket_name
   price_class  = var.frontend_cloudfront_price_class

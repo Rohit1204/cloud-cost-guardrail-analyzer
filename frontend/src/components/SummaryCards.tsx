@@ -15,13 +15,15 @@ export function SummaryCards({ costSummary, health, recommendations }: Props) {
     {
       title: "Month To Date",
       value: formatMoney(costSummary?.month_to_date_unblended_cost, currency),
-      detail: costSummary ? `${formatDate(costSummary.period.start)} to ${formatDate(costSummary.period.end)}` : "Waiting for Cost Explorer",
+      detail: costSummary
+        ? `Cost Explorer unblended usage (UTC). ${formatDate(costSummary.period.start)} to ${formatDate(costSummary.period.end)}. The Billing console total often looks higher: tax, AWS Support, some charges, and up to ~24h CE lag are not fully reflected here.`
+        : "Waiting for Cost Explorer",
       icon: DollarSign,
     },
     {
       title: "Window Total",
       value: formatMoney(costSummary?.total_unblended_cost, currency),
-      detail: `${costSummary?.months ?? 1} month analysis window`,
+      detail: `${costSummary?.months ?? 1} month window (same basis as MTD)`,
       icon: Activity,
     },
     {

@@ -34,6 +34,7 @@ def settings() -> Settings:
         whatsapp_phone_number_id=None,
         whatsapp_to=None,
         whatsapp_api_version="v19.0",
+        billing_console_role_arn=None,
     )
 
 

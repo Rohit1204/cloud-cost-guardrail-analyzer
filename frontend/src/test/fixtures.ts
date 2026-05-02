@@ -7,19 +7,17 @@ export const healthFixture: HealthResponse = {
   gmail_token_configured: true,
   gmail_recipient_configured: true,
   whatsapp_configured: false,
+  billing_console_federation_enabled: true,
 };
 
 export const costSummaryFixture: CostSummaryResponse = {
   cost_summary: {
-    months: 6,
-    period: { start: "2026-03-01", end: "2026-04-29" },
-    total_unblended_cost: 42.11,
+    months: 1,
+    period: { start: "2026-04-01", end: "2026-04-29" },
+    total_unblended_cost: 12.34,
     month_to_date_unblended_cost: 12.34,
     currency: "USD",
-    monthly_costs: [
-      { start: "2026-03-01", end: "2026-04-01", amount: 29.77, currency: "USD" },
-      { start: "2026-04-01", end: "2026-04-29", amount: 12.34, currency: "USD" },
-    ],
+    monthly_costs: [{ start: "2026-04-01", end: "2026-04-29", amount: 12.34, currency: "USD" }],
     top_services: [
       { service: "Amazon Elastic Compute Cloud - Compute", amount: 8.12, currency: "USD" },
       { service: "Amazon Simple Storage Service", amount: 4.22, currency: "USD" },

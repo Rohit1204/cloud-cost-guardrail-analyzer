@@ -22,3 +22,8 @@ output "recommendation_status_table_name" {
   description = "DynamoDB table storing recommendation workflow status."
   value       = aws_dynamodb_table.recommendation_status.name
 }
+
+output "billing_console_role_arn" {
+  description = "IAM role assumed for federated AWS Billing console sign-in from GET /billing/console-url."
+  value       = aws_iam_role.billing_console.arn
+}

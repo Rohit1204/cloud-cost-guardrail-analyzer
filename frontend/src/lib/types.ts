@@ -13,6 +13,11 @@ export type HealthResponse = {
   gmail_token_configured: boolean;
   gmail_recipient_configured: boolean;
   whatsapp_configured: boolean;
+  billing_console_federation_enabled?: boolean;
+};
+
+export type BillingConsoleUrlResponse = {
+  url: string;
 };
 
 export type CostPoint = {
@@ -36,6 +41,8 @@ export type CostSummary = {
   currency: string;
   monthly_costs: CostPoint[];
   top_services: ServiceCost[];
+  /** API prefers UnblendedCost, then NetUnblendedCost if needed. */
+  usage_cost_basis?: string;
 };
 
 export type CostSummaryResponse = {

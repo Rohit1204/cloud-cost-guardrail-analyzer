@@ -98,7 +98,8 @@ class AwsClientFactory:
         kwargs: dict[str, Any] = {
             "TimePeriod": {"Start": start, "End": end},
             "Granularity": granularity,
-            "Metrics": ["UnblendedCost"],
+            # Request both; dashboard prefers Unblended (list usage), then NetUnblended if unblended is missing.
+            "Metrics": ["UnblendedCost", "NetUnblendedCost"],
         }
         if group_by_service:
             kwargs["GroupBy"] = [{"Type": "DIMENSION", "Key": "SERVICE"}]

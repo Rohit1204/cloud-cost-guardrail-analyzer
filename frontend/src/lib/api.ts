@@ -1,6 +1,7 @@
 import type {
   AlertRunRequest,
   AlertRunResponse,
+  BillingConsoleUrlResponse,
   CostSummaryResponse,
   HealthResponse,
   RecommendationStatusUpdateRequest,
@@ -34,8 +35,14 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "error" in payload ? String(payload.error) : `Request failed with ${response.status}`;
+    let message = `Request failed with ${response.status}`;
+    if (payload && typeof payload === "object") {
+      if ("error" in payload) {
+        message = String(payload.error);
+      } else if ("detail" in payload) {
+        message = String(payload.detail);
+      }
+    }
     throw new ApiError(message, response.status);
   }
 
@@ -72,6 +79,10 @@ export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
 
 export function getCostSummary(months: number, signal?: AbortSignal): Promise<CostSummaryResponse> {
   return withRetry(() => requestJson<CostSummaryResponse>(`/costs/summary?months=${months}`, { signal }));
+}
+
+export function getBillingConsoleUrl(signal?: AbortSignal): Promise<BillingConsoleUrlResponse> {
+  return withRetry(() => requestJson<BillingConsoleUrlResponse>("/billing/console-url", { signal }));
 }
 
 export function getRecommendations(months: number, signal?: AbortSignal): Promise<RecommendationsResponse> {

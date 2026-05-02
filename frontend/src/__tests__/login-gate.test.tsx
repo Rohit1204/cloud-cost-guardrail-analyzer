@@ -37,4 +37,16 @@ describe("LoginGate", () => {
 
     expect(screen.getByText("Dashboard for owner@example.com")).toBeInTheDocument();
   });
+
+  it("keeps the dashboard closed when a stored session email is not on the allowlist", () => {
+    vi.stubEnv("NEXT_PUBLIC_GOOGLE_CLIENT_ID", "123.apps.googleusercontent.com");
+    vi.stubEnv("NEXT_PUBLIC_AUTH_ALLOWED_EMAILS", "other@example.com");
+
+    storeAuthSession("token", { email: "owner@example.com" });
+
+    render(<LoginGate />);
+
+    expect(screen.queryByText("Dashboard for owner@example.com")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("This email is not authorized to sign in.");
+  });
 });

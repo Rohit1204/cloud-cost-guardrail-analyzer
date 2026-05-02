@@ -51,6 +51,29 @@ resource "aws_iam_role" "lambda" {
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
 }
 
+data "aws_iam_policy_document" "billing_console_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.lambda.arn]
+    }
+  }
+}
+
+# Federated Billing console sign-in uses job-function/Billing. The account must also allow IAM/federated
+# access to billing: root user → Billing and Cost Management → Billing preferences → turn ON
+# "IAM user and role access to Billing information". Without that, the console shows a permissions error.
+resource "aws_iam_role" "billing_console" {
+  name               = "${var.project_name}-billing-console"
+  assume_role_policy = data.aws_iam_policy_document.billing_console_trust.json
+}
+
+resource "aws_iam_role_policy_attachment" "billing_console" {
+  role       = aws_iam_role.billing_console.name
+  policy_arn = "arn:aws:iam::aws:policy/job-function/Billing"
+}
+
 data "aws_iam_policy_document" "lambda_permissions" {
   statement {
     sid = "ReadCostExplorer"
@@ -94,6 +117,15 @@ data "aws_iam_policy_document" "lambda_permissions" {
       "dynamodb:UpdateItem"
     ]
     resources = [aws_dynamodb_table.recommendation_status.arn]
+  }
+
+  statement {
+    sid    = "AssumeBillingConsoleRole"
+    effect = "Allow"
+    actions = [
+      "sts:AssumeRole"
+    ]
+    resources = [aws_iam_role.billing_console.arn]
   }
 }
 
@@ -156,6 +188,7 @@ resource "aws_lambda_function" "guardrail" {
       WHATSAPP_PHONE_NUMBER_ID        = var.whatsapp_phone_number_id
       WHATSAPP_TO                     = var.whatsapp_to
       WHATSAPP_API_VERSION            = var.whatsapp_api_version
+      BILLING_CONSOLE_ROLE_ARN        = aws_iam_role.billing_console.arn
     }
   }
 

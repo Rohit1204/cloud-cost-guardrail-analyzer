@@ -15,7 +15,7 @@ import type { AuthUser } from "@/lib/auth";
 const MONTH_OPTIONS = [1, 3, 6, 12];
 
 export function Dashboard({ user, onSignOut }: { user: AuthUser; onSignOut: () => void }) {
-  const [months, setMonths] = useState(6);
+  const [months, setMonths] = useState(1);
   const health = useHealth();
   const costs = useCostSummary(months);
   const recommendations = useRecommendations(months);

@@ -10,6 +10,7 @@ from typing import Any
 from auth import AuthError
 from auth import verify_google_user
 from aws_clients import AwsClientFactory
+from billing_console import billing_console_federation_url
 from config import Settings
 from config import load_settings
 from detectors.idle_resources import detect_idle_resources
@@ -40,6 +41,20 @@ OPENAPI_SPEC: dict[str, Any] = {
                         "description": "Current runtime and notification configuration status.",
                         "content": {"application/json": {"schema": {"type": "object"}}},
                     }
+                },
+            }
+        },
+        "/billing/console-url": {
+            "get": {
+                "summary": "Federated AWS Billing console URL",
+                "description": "Uses STS AssumeRole and AWS federation to return a short-lived console sign-in URL to Billing.",
+                "responses": {
+                    "200": {
+                        "description": "Sign-in URL for the AWS Billing console.",
+                        "content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}}}}},
+                    },
+                    "502": {"description": "STS or federation failure."},
+                    "503": {"description": "Feature not configured."},
                 },
             }
         },
@@ -256,6 +271,47 @@ def _cost_amount(metric: dict[str, Any]) -> tuple[float, str]:
     return float(metric.get("Amount", 0.0)), str(metric.get("Unit", "USD"))
 
 
+def _ce_preferred_amount(metrics: dict[str, Any]) -> tuple[float, str]:
+    """Prefer UnblendedCost; fall back to NetUnblendedCost if unblended is absent."""
+    for key in ("UnblendedCost", "NetUnblendedCost"):
+        raw = metrics.get(key, {})
+        if raw and raw.get("Amount") not in (None, ""):
+            return _cost_amount(raw)
+    return 0.0, "USD"
+
+
+def _first_day_next_month(d: date) -> date:
+    if d.month == 12:
+        return date(d.year + 1, 1, 1)
+    return date(d.year, d.month + 1, 1)
+
+
+def _sum_daily_mtd_costs(
+    factory: AwsClientFactory,
+    *,
+    month_start: date,
+    end_exclusive: date,
+) -> tuple[float | None, str]:
+    """Sum preferred CE metric (net unblended first) for [month_start, end_exclusive)."""
+    if month_start >= end_exclusive:
+        return 0.0, "USD"
+    try:
+        rows = factory.daily_unblended_costs(
+            start=month_start.isoformat(),
+            end=end_exclusive.isoformat(),
+            group_by_service=False,
+        )
+    except Exception:
+        logger.exception("daily cost sum for MTD failed")
+        return None, "USD"
+    total = 0.0
+    currency = "USD"
+    for row in rows:
+        amt, currency = _ce_preferred_amount(row.get("Total", {}))
+        total += amt
+    return total, currency
+
+
 def _cost_summary(
     factory: AwsClientFactory,
     *,
@@ -282,8 +338,7 @@ def _cost_summary(
     total = 0.0
     currency = "USD"
     for result in monthly_results:
-        metric = result.get("Total", {}).get("UnblendedCost", {})
-        amount, currency = _cost_amount(metric)
+        amount, currency = _ce_preferred_amount(result.get("Total", {}))
         total += amount
         monthly_costs.append(
             {
@@ -298,8 +353,7 @@ def _cost_summary(
     for result in service_results:
         for group in result.get("Groups", []):
             service = group.get("Keys", ["Unknown"])[0]
-            metric = group.get("Metrics", {}).get("UnblendedCost", {})
-            amount, currency = _cost_amount(metric)
+            amount, currency = _ce_preferred_amount(group.get("Metrics", {}))
             service_totals[service] = service_totals.get(service, 0.0) + amount
 
     service_costs = [
@@ -307,15 +361,46 @@ def _cost_summary(
         for service, amount in sorted(service_totals.items(), key=lambda item: item[1], reverse=True)
         if amount > 0
     ]
+
+    today = date.today()
+    current_month_start = today.replace(day=1)
+    current_key = current_month_start.isoformat()
+    mtd_daily, mtd_currency = _sum_daily_mtd_costs(factory, month_start=current_month_start, end_exclusive=end)
+
+    mtd_amount: float
+    if mtd_daily is not None:
+        mtd_amount = round(mtd_daily, 4)
+        patched = False
+        for row in monthly_costs:
+            if row.get("start") == current_key:
+                row["amount"] = mtd_amount
+                row["currency"] = mtd_currency
+                patched = True
+                break
+        if not patched and mtd_amount > 0:
+            monthly_costs.append(
+                {
+                    "start": current_key,
+                    "end": _first_day_next_month(current_month_start).isoformat(),
+                    "amount": mtd_amount,
+                    "currency": mtd_currency,
+                }
+            )
+            monthly_costs.sort(key=lambda r: r.get("start") or "")
+        total = round(sum(row["amount"] for row in monthly_costs), 4)
+    else:
+        mtd_amount = round(monthly_costs[-1]["amount"], 4) if monthly_costs else 0.0
+
     return (
         {
             "months": months,
             "period": {"start": start.isoformat(), "end": end.isoformat()},
             "total_unblended_cost": round(total, 4),
-            "month_to_date_unblended_cost": round(monthly_costs[-1]["amount"], 4) if monthly_costs else 0,
+            "month_to_date_unblended_cost": mtd_amount,
             "currency": currency,
             "monthly_costs": monthly_costs,
             "top_services": service_costs[:top_n],
+            "usage_cost_basis": "unblended_preferred",
         },
         None,
     )
@@ -511,8 +596,18 @@ def _handle_http_api_event(event: dict[str, Any]) -> dict[str, Any]:
                 "whatsapp_configured": bool(
                     settings.whatsapp_access_token and settings.whatsapp_phone_number_id and settings.whatsapp_to
                 ),
+                "billing_console_federation_enabled": bool(settings.billing_console_role_arn),
             },
         )
+
+    if method == "GET" and path == "/billing/console-url":
+        try:
+            url = billing_console_federation_url(settings, user)
+        except ValueError as exc:
+            return _json_response(503, {"error": str(exc)})
+        except RuntimeError as exc:
+            return _json_response(502, {"error": str(exc)})
+        return _json_response(200, {"url": url})
 
     if method == "GET" and path == "/costs/summary":
         try:

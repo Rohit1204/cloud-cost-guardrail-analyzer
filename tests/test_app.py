@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import date
 
 import app
 from config import Settings
@@ -34,6 +35,7 @@ def settings() -> Settings:
         whatsapp_phone_number_id=None,
         whatsapp_to=None,
         whatsapp_api_version="v19.0",
+        billing_console_role_arn=None,
     )
 
 
@@ -42,20 +44,48 @@ class FakeFactory:
         self.region_name = region_name
 
     def monthly_unblended_costs(self, **kwargs):
+        cm = date.today().replace(day=1)
+        nxt = app._first_day_next_month(cm)
         if kwargs.get("group_by_service"):
             return [
                 {
-                    "TimePeriod": {"Start": "2026-04-01", "End": "2026-04-29"},
+                    "TimePeriod": {"Start": cm.isoformat(), "End": nxt.isoformat()},
                     "Groups": [
-                        {"Keys": ["Amazon Elastic Compute Cloud - Compute"], "Metrics": {"UnblendedCost": {"Amount": "1.25", "Unit": "USD"}}},
-                        {"Keys": ["Amazon Simple Storage Service"], "Metrics": {"UnblendedCost": {"Amount": "0.75", "Unit": "USD"}}},
+                        {
+                            "Keys": ["Amazon Elastic Compute Cloud - Compute"],
+                            "Metrics": {
+                                "NetUnblendedCost": {"Amount": "1.25", "Unit": "USD"},
+                                "UnblendedCost": {"Amount": "1.25", "Unit": "USD"},
+                            },
+                        },
+                        {
+                            "Keys": ["Amazon Simple Storage Service"],
+                            "Metrics": {
+                                "NetUnblendedCost": {"Amount": "0.75", "Unit": "USD"},
+                                "UnblendedCost": {"Amount": "0.75", "Unit": "USD"},
+                            },
+                        },
                     ],
                 }
             ]
         return [
             {
-                "TimePeriod": {"Start": "2026-04-01", "End": "2026-04-29"},
-                "Total": {"UnblendedCost": {"Amount": "2.0", "Unit": "USD"}},
+                "TimePeriod": {"Start": cm.isoformat(), "End": nxt.isoformat()},
+                "Total": {
+                    "NetUnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                    "UnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                },
+            }
+        ]
+
+    def daily_unblended_costs(self, **kwargs):
+        return [
+            {
+                "TimePeriod": {"Start": kwargs["start"], "End": kwargs["end"]},
+                "Total": {
+                    "NetUnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                    "UnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                },
             }
         ]
 
@@ -133,21 +163,50 @@ def test_run_guardrail_accepts_cost_months_filter(monkeypatch) -> None:
                     {
                         "TimePeriod": {"Start": "2026-03-01", "End": "2026-04-01"},
                         "Groups": [
-                            {"Keys": ["AWS Lambda"], "Metrics": {"UnblendedCost": {"Amount": "3", "Unit": "USD"}}}
+                            {
+                                "Keys": ["AWS Lambda"],
+                                "Metrics": {
+                                    "NetUnblendedCost": {"Amount": "3", "Unit": "USD"},
+                                    "UnblendedCost": {"Amount": "3", "Unit": "USD"},
+                                },
+                            }
                         ],
                     }
                 ]
             return [
                 {
                     "TimePeriod": {"Start": "2026-03-01", "End": "2026-04-01"},
-                    "Total": {"UnblendedCost": {"Amount": "3", "Unit": "USD"}},
+                    "Total": {
+                        "NetUnblendedCost": {"Amount": "3", "Unit": "USD"},
+                        "UnblendedCost": {"Amount": "3", "Unit": "USD"},
+                    },
                 },
                 {
                     "TimePeriod": {"Start": "2026-04-01", "End": "2026-04-29"},
-                    "Total": {"UnblendedCost": {"Amount": "4", "Unit": "USD"}},
+                    "Total": {
+                        "NetUnblendedCost": {"Amount": "4", "Unit": "USD"},
+                        "UnblendedCost": {"Amount": "4", "Unit": "USD"},
+                    },
                 },
             ]
 
+        def daily_unblended_costs(self, **kwargs):
+            return [
+                {
+                    "TimePeriod": {"Start": kwargs["start"], "End": kwargs["end"]},
+                    "Total": {
+                        "NetUnblendedCost": {"Amount": "4", "Unit": "USD"},
+                        "UnblendedCost": {"Amount": "4", "Unit": "USD"},
+                    },
+                }
+            ]
+
+    class _FixedTodayDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 4, 15)
+
+    monkeypatch.setattr(app, "date", _FixedTodayDate)
     monkeypatch.setattr(app, "AwsClientFactory", MultiMonthFactory)
     monkeypatch.setattr(app, "detect_idle_resources", lambda factory, loaded_settings: [])
     monkeypatch.setattr(app, "detect_spend_spikes", lambda factory, loaded_settings: [])
@@ -206,6 +265,23 @@ def test_lambda_handler_accepts_verified_google_user(monkeypatch) -> None:
 
     assert response["statusCode"] == 200
     assert '"authenticated_user": "owner@example.com"' in response["body"]
+
+
+def test_lambda_handler_billing_console_url_not_configured(monkeypatch) -> None:
+    monkeypatch.setattr(app, "load_settings", settings)
+    monkeypatch.setattr(app, "verify_google_user", lambda loaded_settings, headers: {"email": "owner@example.com"})
+
+    response = app.lambda_handler(
+        {
+            "rawPath": "/billing/console-url",
+            "headers": {"authorization": "Bearer token"},
+            "requestContext": {"http": {"method": "GET", "path": "/billing/console-url"}},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 503
+    assert "not configured" in response["body"]
 
 
 def test_lambda_handler_serves_swagger_docs() -> None:

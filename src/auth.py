@@ -38,8 +38,8 @@ def verify_google_user(settings: Settings, headers: dict[str, str]) -> dict[str,
 
     allowed = {allowed_email.strip().lower() for allowed_email in settings.auth_allowed_emails if allowed_email.strip()}
     if not allowed:
-        raise AuthError("No allowed Google accounts are configured", status_code=403)
+        raise AuthError("Sign-in is not configured.", status_code=403)
     if email not in allowed:
-        raise AuthError("Signed-in Google account is not allowed", status_code=403)
+        raise AuthError("This email is not authorized to sign in.", status_code=403)
 
     return claims

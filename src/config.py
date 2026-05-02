@@ -33,6 +33,7 @@ class Settings:
     whatsapp_phone_number_id: str | None
     whatsapp_to: str | None
     whatsapp_api_version: str
+    billing_console_role_arn: str | None
 
 
 def _get_float(name: str, default: float) -> float:
@@ -106,4 +107,5 @@ def load_settings() -> Settings:
         whatsapp_phone_number_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
         whatsapp_to=os.getenv("WHATSAPP_TO"),
         whatsapp_api_version=os.getenv("WHATSAPP_API_VERSION", "v19.0"),
+        billing_console_role_arn=(os.getenv("BILLING_CONSOLE_ROLE_ARN") or None),
     )

@@ -67,6 +67,62 @@ export function getGoogleClientId(): string {
   return process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 }
 
+/** Comma-separated emails; must match server AUTH_ALLOWED_EMAILS. Falls back to NEXT_PUBLIC_ALLOWED_ALERT_EMAILS. */
+export function getAuthAllowedEmailSet(): Set<string> {
+  const raw = process.env.NEXT_PUBLIC_AUTH_ALLOWED_EMAILS || process.env.NEXT_PUBLIC_ALLOWED_ALERT_EMAILS || "";
+  const emails = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(emails);
+}
+
+export function parseGoogleCredential(token: string): AuthUser {
+  const payload = decodeJwtPayload(token);
+  return {
+    email: String(payload.email ?? ""),
+    name: payload.name ? String(payload.name) : undefined,
+    picture: payload.picture ? String(payload.picture) : undefined,
+  };
+}
+
+export type AuthBootstrap = {
+  user: AuthUser | null;
+  gateError: string | null;
+};
+
+/** On load: drop invalid stored sessions when Google sign-in is enabled (aligned with server allowlist). */
+export function bootstrapGoogleAuthSession(): AuthBootstrap {
+  const clientId = getGoogleClientId();
+  const stored = getStoredUser();
+  if (!stored?.email) {
+    return { user: null, gateError: null };
+  }
+  if (!clientId) {
+    return { user: stored, gateError: null };
+  }
+
+  const allowed = getAuthAllowedEmailSet();
+  if (allowed.size === 0) {
+    clearAuthSession();
+    return {
+      user: null,
+      gateError: "Sign-in is not configured.",
+    };
+  }
+
+  const normalized = stored.email.trim().toLowerCase();
+  if (!allowed.has(normalized)) {
+    clearAuthSession();
+    return {
+      user: null,
+      gateError: "This email is not authorized to sign in.",
+    };
+  }
+
+  return { user: stored, gateError: null };
+}
+
 export function getAuthToken(): string | null {
   if (typeof window === "undefined") {
     return null;
@@ -95,12 +151,7 @@ export function storeAuthSession(token: string, user: AuthUser) {
 }
 
 export function storeGoogleCredential(token: string): AuthUser {
-  const payload = decodeJwtPayload(token);
-  const user = {
-    email: String(payload.email ?? ""),
-    name: payload.name ? String(payload.name) : undefined,
-    picture: payload.picture ? String(payload.picture) : undefined,
-  };
+  const user = parseGoogleCredential(token);
   storeAuthSession(token, user);
   return user;
 }
