@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getCostSummary, getHealth, runAlerts, updateRecommendationStatus } from "@/lib/api";
-import { clearAuthSession, storeAuthSession } from "@/lib/auth";
+import { clearAuthSession, getAuthToken, GOOGLE_SESSION_INVALID_EVENT, storeAuthSession } from "@/lib/auth";
 import { alertRunFixture, costSummaryFixture, healthFixture } from "@/test/fixtures";
 
 describe("api client", () => {
@@ -68,5 +68,18 @@ describe("api client", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ error: "bad months" }), { status: 400 }));
 
     await expect(getCostSummary(24)).rejects.toThrow("bad months");
+  });
+
+  it("clears session and notifies when Google token is invalid", async () => {
+    storeAuthSession("bad-token", { email: "owner@example.com" });
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "Invalid Google sign-in token" }), { status: 401 }),
+    );
+
+    await expect(getHealth()).rejects.toThrow("Invalid Google sign-in token");
+
+    expect(getAuthToken()).toBeNull();
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: GOOGLE_SESSION_INVALID_EVENT }));
   });
 });

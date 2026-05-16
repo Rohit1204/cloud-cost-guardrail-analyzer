@@ -1,8 +1,9 @@
 "use client";
 
 import { BarChart3, Bell, Loader2, Lock, ShieldCheck } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  GOOGLE_SESSION_INVALID_EVENT,
   bootstrapGoogleAuthSession,
   clearAuthSession,
   getAuthAllowedEmailSet,
@@ -74,13 +75,29 @@ const featureItems = [
 
 export function LoginGate() {
   const googleButtonRef = useRef<HTMLDivElement>(null);
-  const boot = useMemo(() => bootstrapGoogleAuthSession(), []);
-  const [user, setUser] = useState<AuthUser | null>(boot.user);
-  const [gateError, setGateError] = useState<string | null>(boot.gateError);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [gateError, setGateError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gsiReady, setGsiReady] = useState(false);
   const clientId = getGoogleClientId();
   const displayError = error ?? gateError;
+
+  useEffect(() => {
+    const boot = bootstrapGoogleAuthSession();
+    setUser(boot.user);
+    setGateError(boot.gateError);
+  }, []);
+
+  useEffect(() => {
+    function onGoogleSessionInvalid() {
+      setUser(null);
+      setGateError(null);
+      setError(null);
+      setGsiReady(false);
+    }
+    window.addEventListener(GOOGLE_SESSION_INVALID_EVENT, onGoogleSessionInvalid);
+    return () => window.removeEventListener(GOOGLE_SESSION_INVALID_EVENT, onGoogleSessionInvalid);
+  }, []);
 
   useEffect(() => {
     if (!clientId || user) {
@@ -140,6 +157,7 @@ export function LoginGate() {
     setUser(null);
     setGateError(null);
     setError(null);
+    setGsiReady(false);
   }
 
   if (user) {

@@ -87,6 +87,16 @@ data "aws_iam_policy_document" "lambda_permissions" {
     resources = ["*"]
   }
 
+  # AWS Invoice Summary API (same family as Billing console closed-month invoices).
+  statement {
+    sid = "ReadInvoiceSummaries"
+    actions = [
+      "invoicing:ListInvoiceSummaries",
+      "sts:GetCallerIdentity",
+    ]
+    resources = ["*"]
+  }
+
   statement {
     sid = "ReadResourceInventory"
     actions = [

@@ -87,6 +87,15 @@ Tune thresholds based on account size and expected daily spend.
 
 `cost_summary` is not threshold-based. It always attempts to return unblended cost and top services from Cost Explorer. Use the `/costs/summary?months=6` query parameter for read-only cost views, or `cost_months` in `/alerts/run` requests. Supported windows are 1 to 12 months.
 
+### AWS invoice totals (Invoice Summary API)
+
+When the Lambda or API role can call the **AWS Invoicing** API, `cost_summary.invoice_billing` includes closed-month totals for the **current** and **prior** calendar billing months. The **current** month is often empty until AWS issues that invoice. Open-month spend is still shown via Cost Explorer fields (`month_to_date_unblended_cost`, `month_to_date_invoice_hint`).
+
+Each period includes `total_amount` / `currency` chosen for parity with the console: **payment (charged) currency** when `PaymentCurrencyAmount` is present, otherwise **base invoice currency**. Extra fields (`base_*`, `payment_*`, `tax_currency_*`, `display_basis`) expose the raw API split. Summary totals can still differ slightly from every line on the Bills PDF (rounding, credits, consolidated accounts).
+
+- IAM: grant `invoicing:ListInvoiceSummaries` and `sts:GetCallerIdentity` on the execution role (for example via managed policy `AWSBillingReadOnlyAccess` or a custom policy with those actions).
+- Disable the calls (for example in a minimal IAM role) with environment variable `INVOICE_SUMMARY_ENABLED=false`.
+
 ## Recommendation Workflow
 
 Recommendation acknowledgement state is stored in DynamoDB. Terraform creates the table and injects `RECOMMENDATION_STATUS_TABLE` into Lambda. The API returns each recommendation with:

@@ -8,7 +8,7 @@ import type {
   RecommendationStatusUpdateResponse,
   RecommendationsResponse,
 } from "./types";
-import { getAuthToken } from "./auth";
+import { getAuthToken, invalidateGoogleSession } from "./auth";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -42,6 +42,9 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
       } else if ("detail" in payload) {
         message = String(payload.detail);
       }
+    }
+    if (message === "Invalid Google sign-in token") {
+      invalidateGoogleSession();
     }
     throw new ApiError(message, response.status);
   }

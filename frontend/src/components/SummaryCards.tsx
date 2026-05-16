@@ -11,12 +11,24 @@ type Props = {
 
 export function SummaryCards({ costSummary, health, recommendations }: Props) {
   const currency = costSummary?.currency ?? "USD";
-  const cards = [
+  const invoiceHint = costSummary?.month_to_date_invoice_hint;
+  const invoiceCcy = costSummary?.month_to_date_invoice_hint_currency ?? currency;
+  const showInvoiceHint = costSummary != null && invoiceHint != null;
+  const cards: Array<{
+    title: string;
+    value: string;
+    subdetail?: string;
+    detail: string;
+    icon: typeof DollarSign;
+  }> = [
     {
       title: "Month To Date",
       value: formatMoney(costSummary?.month_to_date_unblended_cost, currency),
+      subdetail: showInvoiceHint
+        ? `Invoice-style hint (CE amortized): ${formatMoney(invoiceHint, invoiceCcy)}. Still not the AWS invoice (tax, credits, non-CE lines, lag).`
+        : undefined,
       detail: costSummary
-        ? `Cost Explorer unblended usage (UTC). ${formatDate(costSummary.period.start)} to ${formatDate(costSummary.period.end)}. The Billing console total often looks higher: tax, AWS Support, some charges, and up to ~24h CE lag are not fully reflected here.`
+        ? `Cost Explorer usage basis (UTC). ${formatDate(costSummary.period.start)} to ${formatDate(costSummary.period.end)}. The Billing console total often looks higher: tax, AWS Support, some charges, and up to ~24h CE lag are not fully reflected here.`
         : "Waiting for Cost Explorer",
       icon: DollarSign,
     },
@@ -48,6 +60,7 @@ export function SummaryCards({ costSummary, health, recommendations }: Props) {
             <div>
               <p className="text-sm font-medium text-slate-500">{card.title}</p>
               <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">{card.value}</p>
+              {card.subdetail ? <p className="mt-1 text-sm text-slate-600">{card.subdetail}</p> : null}
               <p className="mt-2 text-sm text-slate-500">{card.detail}</p>
             </div>
             <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">

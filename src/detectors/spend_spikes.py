@@ -3,14 +3,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from aws_clients import AwsClientFactory
+from aws_clients import AwsClientFactory, ce_preferred_amount, ce_row_metric_map
 from config import Settings
 from models import Finding, FindingCategory
 from ownership import resolve_owner_email
 
 
 def _amount(result: dict[str, Any]) -> float:
-    return float(result.get("Total", {}).get("UnblendedCost", {}).get("Amount", 0.0))
+    return ce_preferred_amount(ce_row_metric_map(result))[0]
 
 
 def _top_services(results: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
@@ -19,9 +19,8 @@ def _top_services(results: list[dict[str, Any]], *, limit: int = 5) -> list[dict
     for result in results:
         for group in result.get("Groups", []):
             service = group.get("Keys", ["Unknown"])[0]
-            metric = group.get("Metrics", {}).get("UnblendedCost", {})
-            amount = float(metric.get("Amount", 0.0))
-            currency = metric.get("Unit", currency)
+            amount, cur = ce_preferred_amount(group.get("Metrics", {}))
+            currency = cur
             totals[service] = totals.get(service, 0.0) + amount
     return [
         {"service": service, "amount": round(amount, 4), "currency": currency}

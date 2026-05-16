@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from aws_clients import AwsClientFactory
+from aws_clients import AwsClientFactory, ce_preferred_amount
 from config import Settings
 from models import Finding, FindingCategory
 from ownership import resolve_owner_email
@@ -14,7 +14,7 @@ def _service_total(results: list[dict[str, Any]]) -> dict[str, float]:
     for result in results:
         for group in result.get("Groups", []):
             service = group.get("Keys", ["Unknown"])[0]
-            amount = float(group.get("Metrics", {}).get("UnblendedCost", {}).get("Amount", 0.0))
+            amount, _ = ce_preferred_amount(group.get("Metrics", {}))
             totals[service] = totals.get(service, 0.0) + amount
     return totals
 

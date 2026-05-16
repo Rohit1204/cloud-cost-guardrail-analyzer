@@ -160,3 +160,14 @@ export function clearAuthSession() {
   storageRemove(TOKEN_KEY);
   storageRemove(USER_KEY);
 }
+
+/** Dispatched after storage is cleared when the API rejects the Google ID token. */
+export const GOOGLE_SESSION_INVALID_EVENT = "cloud-cost:google-session-invalid";
+
+/** Clear stored Google credentials and notify the app shell (e.g. LoginGate) to show sign-in again. */
+export function invalidateGoogleSession(): void {
+  clearAuthSession();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(GOOGLE_SESSION_INVALID_EVENT));
+  }
+}

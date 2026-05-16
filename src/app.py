@@ -2,20 +2,21 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 import logging
 from typing import Any
 
 from auth import AuthError
 from auth import verify_google_user
-from aws_clients import AwsClientFactory
+from aws_clients import AwsClientFactory, ce_amount_from_keys, ce_preferred_amount, ce_row_metric_map
 from billing_console import billing_console_federation_url
 from config import Settings
 from config import load_settings
 from detectors.idle_resources import detect_idle_resources
 from detectors.savings import detect_savings_opportunities
 from detectors.spend_spikes import detect_spend_spikes
+from invoice_billing import fetch_invoice_billing
 from models import Finding
 from models import NotificationResult
 from recommendations import build_recommendations
@@ -258,26 +259,17 @@ def _add_months(month_start: date, months: int) -> date:
     return date(month_start.year + month_index // 12, month_index % 12 + 1, 1)
 
 
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
 def _cost_window(months: int) -> tuple[date, date]:
-    today = date.today()
+    today = _utc_today()
     current_month = today.replace(day=1)
     start = _add_months(current_month, -(months - 1))
     # Cost Explorer end date is exclusive. Tomorrow includes current partial month-to-date data.
     end = today + timedelta(days=1)
     return start, end
-
-
-def _cost_amount(metric: dict[str, Any]) -> tuple[float, str]:
-    return float(metric.get("Amount", 0.0)), str(metric.get("Unit", "USD"))
-
-
-def _ce_preferred_amount(metrics: dict[str, Any]) -> tuple[float, str]:
-    """Prefer UnblendedCost; fall back to NetUnblendedCost if unblended is absent."""
-    for key in ("UnblendedCost", "NetUnblendedCost"):
-        raw = metrics.get(key, {})
-        if raw and raw.get("Amount") not in (None, ""):
-            return _cost_amount(raw)
-    return 0.0, "USD"
 
 
 def _first_day_next_month(d: date) -> date:
@@ -286,15 +278,115 @@ def _first_day_next_month(d: date) -> date:
     return date(d.year, d.month + 1, 1)
 
 
-def _sum_daily_mtd_costs(
+# Ungrouped CE totals can be 0 while grouped-by-SERVICE still has small amounts (API quirk for tiny spend).
+_CE_ZEROISH = 1e-9
+# Daily MTD "invoice-style" hint: amortization-heavy metrics (not the same as the AWS invoice PDF).
+_CE_INVOICE_HINT_METRICS: tuple[str, ...] = ("NetAmortizedCost", "AmortizedCost")
+
+
+def _fin_cost(x: float) -> float:
+    """Round and drop negative zero for JSON-friendly numbers."""
+    r = float(round(x + 0.0, 4))
+    return 0.0 + r
+
+
+def _period_start_key(value: object) -> str | None:
+    """Normalize CE TimePeriod.Start to YYYY-MM-DD for dict keys and comparisons (boto3 may use date objects)."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    s = str(value).strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    return s or None
+
+
+def _aggregate_grouped_monthly(
+    service_results: list[dict[str, Any]],
+) -> tuple[dict[str, float], dict[str, str], dict[str, float], dict[str, str]]:
+    """Per calendar month sums from grouped results, per-service totals, and last-seen currency per service."""
+    monthly_sum: dict[str, float] = {}
+    monthly_currency: dict[str, str] = {}
+    service_totals: dict[str, float] = {}
+    service_currency: dict[str, str] = {}
+    for result in service_results:
+        mstart = result.get("TimePeriod", {}).get("Start")
+        nk = _period_start_key(mstart)
+        if not nk:
+            continue
+        month_sum = 0.0
+        month_currency = "USD"
+        for group in result.get("Groups", []):
+            keys = group.get("Keys", ["Unknown"])
+            service = keys[0] if keys else "Unknown"
+            amount, cur = ce_preferred_amount(group.get("Metrics", {}))
+            month_sum += amount
+            month_currency = cur
+            service_totals[service] = service_totals.get(service, 0.0) + amount
+            service_currency[service] = cur
+        monthly_sum[nk] = monthly_sum.get(nk, 0.0) + month_sum
+        monthly_currency[nk] = month_currency
+    return monthly_sum, monthly_currency, service_totals, service_currency
+
+
+def _grouped_sum_for_calendar_month(
+    monthly_grouped_sum: dict[str, float],
+    monthly_group_currency: dict[str, str],
+    *,
+    current_key: str,
+    month_start: date,
+) -> tuple[float | None, str | None]:
+    """Resolve grouped-by-SERVICE month total; fall back to any CE key in the same calendar month (key drift)."""
+    v = monthly_grouped_sum.get(current_key)
+    if v is not None and abs(v) >= _CE_ZEROISH:
+        return v, monthly_group_currency.get(current_key)
+    prefix = f"{month_start.year:04d}-{month_start.month:02d}-"
+    acc = 0.0
+    cur: str | None = monthly_group_currency.get(current_key)
+    for k, g in monthly_grouped_sum.items():
+        if not k:
+            continue
+        if str(k).startswith(prefix) and abs(g) >= _CE_ZEROISH:
+            acc += g
+            cur = monthly_group_currency.get(k, cur)
+    if abs(acc) >= _CE_ZEROISH:
+        return acc, cur
+    if v is not None:
+        return v, monthly_group_currency.get(current_key)
+    return None, None
+
+
+def _month_row_matches(
+    row_start: object,
+    *,
+    current_key: str,
+    month_start: date,
+) -> bool:
+    rs = _period_start_key(row_start) or row_start
+    if not rs:
+        return False
+    s = str(rs)
+    if s == current_key:
+        return True
+    prefix = f"{month_start.year:04d}-{month_start.month:02d}-"
+    return s.startswith(prefix)
+
+
+def _sum_daily_mtd_and_invoice_hint(
     factory: AwsClientFactory,
     *,
     month_start: date,
     end_exclusive: date,
-) -> tuple[float | None, str]:
-    """Sum preferred CE metric (net unblended first) for [month_start, end_exclusive)."""
+) -> tuple[float | None, str, float | None, str]:
+    """Sum usage-preferred and amortized-style CE metrics for [month_start, end_exclusive) (daily rows).
+
+    Returns (usage_mtd, usage_ccy, invoice_hint_mtd, invoice_ccy). On CE failure, usage and hint are None.
+    """
     if month_start >= end_exclusive:
-        return 0.0, "USD"
+        return 0.0, "USD", 0.0, "USD"
     try:
         rows = factory.daily_unblended_costs(
             start=month_start.isoformat(),
@@ -303,13 +395,18 @@ def _sum_daily_mtd_costs(
         )
     except Exception:
         logger.exception("daily cost sum for MTD failed")
-        return None, "USD"
+        return None, "USD", None, "USD"
     total = 0.0
     currency = "USD"
+    inv_total = 0.0
+    inv_currency = "USD"
     for row in rows:
-        amt, currency = _ce_preferred_amount(row.get("Total", {}))
+        m = ce_row_metric_map(row)
+        amt, currency = ce_preferred_amount(m)
         total += amt
-    return total, currency
+        i_amt, inv_currency = ce_amount_from_keys(m, _CE_INVOICE_HINT_METRICS)
+        inv_total += i_amt
+    return total, currency, inv_total, inv_currency
 
 
 def _cost_summary(
@@ -317,6 +414,7 @@ def _cost_summary(
     *,
     months: int = 1,
     top_n: int = 10,
+    invoice_summary_enabled: bool = True,
 ) -> tuple[dict[str, Any] | None, dict[str, str] | None]:
     start, end = _cost_window(months)
     try:
@@ -338,46 +436,72 @@ def _cost_summary(
     total = 0.0
     currency = "USD"
     for result in monthly_results:
-        amount, currency = _ce_preferred_amount(result.get("Total", {}))
+        amount, currency = ce_preferred_amount(ce_row_metric_map(result))
         total += amount
+        raw_start = result.get("TimePeriod", {}).get("Start")
+        raw_end = result.get("TimePeriod", {}).get("End")
+        start_key = _period_start_key(raw_start) or (str(raw_start) if raw_start is not None else None)
+        end_key = _period_start_key(raw_end) or (str(raw_end) if raw_end is not None else None)
         monthly_costs.append(
             {
-                "start": result.get("TimePeriod", {}).get("Start"),
-                "end": result.get("TimePeriod", {}).get("End"),
-                "amount": round(amount, 4),
+                "start": start_key,
+                "end": end_key,
+                "amount": _fin_cost(amount),
                 "currency": currency,
             }
         )
 
-    service_totals: dict[str, float] = {}
-    for result in service_results:
-        for group in result.get("Groups", []):
-            service = group.get("Keys", ["Unknown"])[0]
-            amount, currency = _ce_preferred_amount(group.get("Metrics", {}))
-            service_totals[service] = service_totals.get(service, 0.0) + amount
+    monthly_grouped_sum, monthly_group_currency, service_totals, service_currency = _aggregate_grouped_monthly(
+        service_results
+    )
+
+    today = _utc_today()
+    current_month_start = today.replace(day=1)
+    current_key = _period_start_key(current_month_start.isoformat()) or current_month_start.isoformat()
+
+    for row in monthly_costs:
+        mstart = row.get("start")
+        nk = _period_start_key(mstart) or mstart
+        if not nk:
+            continue
+        gsum = monthly_grouped_sum.get(nk)
+        if gsum is None:
+            continue
+        if abs(float(row["amount"])) < _CE_ZEROISH and abs(gsum) >= _CE_ZEROISH:
+            row["amount"] = _fin_cost(gsum)
+            row["currency"] = monthly_group_currency.get(nk, row.get("currency", "USD"))
 
     service_costs = [
-        {"service": service, "amount": round(amount, 4), "currency": currency}
+        {"service": service, "amount": _fin_cost(amount), "currency": service_currency.get(service, "USD")}
         for service, amount in sorted(service_totals.items(), key=lambda item: item[1], reverse=True)
-        if amount > 0
+        if amount > _CE_ZEROISH
     ]
 
-    today = date.today()
-    current_month_start = today.replace(day=1)
-    current_key = current_month_start.isoformat()
-    mtd_daily, mtd_currency = _sum_daily_mtd_costs(factory, month_start=current_month_start, end_exclusive=end)
+    mtd_daily, mtd_currency, mtd_invoice_hint, mtd_invoice_currency = _sum_daily_mtd_and_invoice_hint(
+        factory, month_start=current_month_start, end_exclusive=end
+    )
+    grouped_current, grouped_current_currency = _grouped_sum_for_calendar_month(
+        monthly_grouped_sum,
+        monthly_group_currency,
+        current_key=current_key,
+        month_start=current_month_start,
+    )
 
     mtd_amount: float
     if mtd_daily is not None:
-        mtd_amount = round(mtd_daily, 4)
+        if abs(mtd_daily) < _CE_ZEROISH and grouped_current is not None and abs(grouped_current) >= _CE_ZEROISH:
+            mtd_amount = _fin_cost(grouped_current)
+            mtd_currency = grouped_current_currency or monthly_group_currency.get(current_key, mtd_currency)
+        else:
+            mtd_amount = _fin_cost(mtd_daily)
         patched = False
         for row in monthly_costs:
-            if row.get("start") == current_key:
+            if _month_row_matches(row.get("start"), current_key=current_key, month_start=current_month_start):
                 row["amount"] = mtd_amount
                 row["currency"] = mtd_currency
                 patched = True
                 break
-        if not patched and mtd_amount > 0:
+        if not patched and abs(mtd_amount) >= _CE_ZEROISH:
             monthly_costs.append(
                 {
                     "start": current_key,
@@ -387,20 +511,65 @@ def _cost_summary(
                 }
             )
             monthly_costs.sort(key=lambda r: r.get("start") or "")
-        total = round(sum(row["amount"] for row in monthly_costs), 4)
     else:
-        mtd_amount = round(monthly_costs[-1]["amount"], 4) if monthly_costs else 0.0
+        mtd_amount = _fin_cost(float(monthly_costs[-1]["amount"])) if monthly_costs else 0.0
+
+    total = _fin_cost(sum(float(row["amount"]) for row in monthly_costs)) if monthly_costs else 0.0
+
+    for row in monthly_costs:
+        if _month_row_matches(row.get("start"), current_key=current_key, month_start=current_month_start):
+            currency = str(row.get("currency") or currency)
+            break
+    else:
+        if monthly_costs:
+            currency = str(monthly_costs[-1].get("currency") or currency)
+
+    svc_sum = _fin_cost(sum(service_totals.values()))
+    if abs(total) < _CE_ZEROISH and svc_sum > _CE_ZEROISH:
+        total = svc_sum
+        if abs(mtd_amount) < _CE_ZEROISH:
+            mtd_amount = svc_sum
+        if len(monthly_costs) == 1:
+            monthly_costs[0]["amount"] = svc_sum
+            monthly_costs[0]["currency"] = next(
+                (monthly_group_currency[k] for k in sorted(monthly_group_currency) if k),
+                currency,
+            )
+        else:
+            for row in monthly_costs:
+                if _month_row_matches(row.get("start"), current_key=current_key, month_start=current_month_start):
+                    row["amount"] = mtd_amount
+                    row["currency"] = mtd_currency
+                    break
+
+    total = _fin_cost(total)
+    mtd_amount = _fin_cost(mtd_amount)
+
+    if mtd_daily is not None and mtd_invoice_hint is not None:
+        invoice_hint = _fin_cost(mtd_invoice_hint)
+        invoice_ccy = mtd_invoice_currency
+        invoice_basis = "ce_net_amortized_then_amortized_daily"
+    else:
+        invoice_hint = None
+        invoice_ccy = None
+        invoice_basis = None
+
+    invoice_block = fetch_invoice_billing(factory, today, enabled=invoice_summary_enabled)
 
     return (
         {
             "months": months,
             "period": {"start": start.isoformat(), "end": end.isoformat()},
-            "total_unblended_cost": round(total, 4),
+            "total_unblended_cost": total,
             "month_to_date_unblended_cost": mtd_amount,
             "currency": currency,
             "monthly_costs": monthly_costs,
             "top_services": service_costs[:top_n],
-            "usage_cost_basis": "unblended_preferred",
+            "usage_cost_basis": "ce_preferred_metrics",
+            "month_to_date_invoice_hint": invoice_hint,
+            "month_to_date_invoice_hint_currency": invoice_ccy,
+            "invoice_hint_basis": invoice_basis,
+            "invoice_billing": invoice_block,
         },
         None,
     )
@@ -413,7 +582,11 @@ def run_guardrail(settings: Settings | None = None, *, send_alerts: bool = True,
     findings: list[Finding] = []
     errors: list[dict[str, str]] = []
     normalized_cost_months = max(1, min(cost_months, 12))
-    cost_summary, cost_error = _cost_summary(factory, months=normalized_cost_months)
+    cost_summary, cost_error = _cost_summary(
+        factory,
+        months=normalized_cost_months,
+        invoice_summary_enabled=settings.invoice_summary_enabled,
+    )
     if cost_error:
         errors.append(cost_error)
 
@@ -615,7 +788,11 @@ def _handle_http_api_event(event: dict[str, Any]) -> dict[str, Any]:
         except ValueError as exc:
             return _json_response(400, {"error": str(exc)})
         factory = AwsClientFactory(settings.aws_region)
-        cost_summary, cost_error = _cost_summary(factory, months=months)
+        cost_summary, cost_error = _cost_summary(
+            factory,
+            months=months,
+            invoice_summary_enabled=settings.invoice_summary_enabled,
+        )
         return _json_response(200, {"cost_summary": cost_summary, "errors": [cost_error] if cost_error else []})
 
     if method == "GET" and path == "/recommendations":

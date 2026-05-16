@@ -3,6 +3,7 @@
 import { RefreshCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useCostSummary, useHealth, useRecommendations } from "@/hooks/useGuardrailApi";
+import { countRegionsFromRecommendations, countServicesWithSpend, priorMonthDeltaLabel } from "@/lib/costInsights";
 import { AlertRunner } from "./AlertRunner";
 import { BillingInvoiceView } from "./BillingInvoiceView";
 import { CostCharts } from "./CostCharts";
@@ -27,6 +28,13 @@ export function Dashboard({ user, onSignOut }: { user: AuthUser; onSignOut: () =
     () => [...(costs.data?.errors ?? []), ...(recommendations.data?.errors ?? [])],
     [costs.data?.errors, recommendations.data?.errors],
   );
+
+  const servicesWithSpend = useMemo(() => countServicesWithSpend(costs.data?.cost_summary), [costs.data?.cost_summary]);
+  const findingRegions = useMemo(
+    () => countRegionsFromRecommendations(recommendations.data?.recommendations),
+    [recommendations.data?.recommendations],
+  );
+  const monthTrendHint = useMemo(() => priorMonthDeltaLabel(costs.data?.cost_summary), [costs.data?.cost_summary]);
 
   function refreshAll() {
     costs.reload();
@@ -100,6 +108,47 @@ export function Dashboard({ user, onSignOut }: { user: AuthUser; onSignOut: () =
       </header>
 
       <SummaryCards costSummary={costs.data?.cost_summary} health={health.data} recommendations={recommendations.data} />
+
+      <Card className="border-slate-200 bg-slate-50/90 p-5">
+        <SectionHeader eyebrow="Context" title="AWS console vs this dashboard" />
+        <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-600">
+          <p>
+            Labels like <span className="font-medium text-slate-800">“Current MTD balance”</span>,{" "}
+            <span className="font-medium text-slate-800">“No data to display”</span>, or{" "}
+            <span className="font-medium text-slate-800">“Total number of active AWS accounts”</span> come from the{" "}
+            <span className="font-medium text-slate-800">AWS Billing / Cost Management</span> experience, not from this
+            app. Those tiles can stay empty while the invoice still shows USD/INR totals because they rely on different
+            datasets, filters, organization scope, or extra IAM permissions (for example full Organizations access for
+            account counts).
+          </p>
+          <p>
+            This dashboard uses your API’s <span className="font-medium text-slate-800">Cost Explorer</span> usage
+            totals and guardrail findings. Deploy the latest Lambda so MTD and charts match CE; use the month selector
+            above for a longer window when you want a rough month-over-month readout.
+          </p>
+          <div className="flex flex-wrap gap-3 border-t border-slate-200/80 pt-3 text-xs text-slate-600">
+            <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-800 ring-1 ring-slate-200">
+              CE services with spend (window): {servicesWithSpend}
+            </span>
+            <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-800 ring-1 ring-slate-200">
+              Regions in recommendations: {findingRegions}
+            </span>
+            {monthTrendHint ? (
+              <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-800 ring-1 ring-slate-200">
+                {monthTrendHint}
+              </span>
+            ) : months < 2 ? (
+              <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-700 ring-1 ring-slate-200">
+                Pick 2+ months above for a simple prior-month % hint in this window
+              </span>
+            ) : (
+              <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-700 ring-1 ring-slate-200">
+                Not enough non-zero spend in the last two monthly buckets to show a % change
+              </span>
+            )}
+          </div>
+        </div>
+      </Card>
 
       <DetectorErrors errors={allErrors} />
 

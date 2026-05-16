@@ -84,7 +84,11 @@ def billing_console_url(user: dict[str, object] | None = Depends(require_user)) 
 @api.get("/costs/summary")
 def cost_summary(months: int = Query(default=1, ge=1, le=12), user: dict[str, object] | None = Depends(require_user)) -> dict[str, object]:
     settings = load_settings()
-    summary, error = _cost_summary(AwsClientFactory(settings.aws_region), months=months)
+    summary, error = _cost_summary(
+        AwsClientFactory(settings.aws_region),
+        months=months,
+        invoice_summary_enabled=settings.invoice_summary_enabled,
+    )
     return {"cost_summary": summary, "errors": [error] if error else []}
 
 

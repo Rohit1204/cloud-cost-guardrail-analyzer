@@ -5,6 +5,86 @@ from typing import Any
 
 import boto3
 
+# Cost Explorer may omit keys or return 0 for some metrics while another carries the charge (e.g. blended vs unblended).
+_CE_METRIC_KEYS: tuple[str, ...] = (
+    "UnblendedCost",
+    "NetUnblendedCost",
+    "BlendedCost",
+    "NetAmortizedCost",
+    "AmortizedCost",
+)
+
+
+def ce_preferred_amount(metrics: dict[str, Any]) -> tuple[float, str]:
+    """Return amount and unit from the best CE metric in a Total or Group Metrics map.
+
+    Tries metrics in order but skips an entry whose Amount parses to exactly 0 so we do not
+    stick on UnblendedCost=0 when BlendedCost (or another line) reflects spend the Billing page shows.
+    """
+    last_non_missing: tuple[float, str] | None = None
+    for key in _CE_METRIC_KEYS:
+        raw = metrics.get(key)
+        if not isinstance(raw, dict):
+            continue
+        amt = raw.get("Amount")
+        if amt is None:
+            amt = raw.get("amount")
+        if amt in (None, ""):
+            continue
+        try:
+            value = float(amt)
+        except (TypeError, ValueError):
+            continue
+        unit = str(raw.get("Unit") or raw.get("unit") or "USD")
+        last_non_missing = (value, unit)
+        if value != 0.0:
+            return value, unit
+    if last_non_missing is not None:
+        return last_non_missing
+    return 0.0, "USD"
+
+
+def ce_amount_from_keys(
+    metrics: dict[str, Any],
+    keys: tuple[str, ...],
+    *,
+    skip_zero: bool = True,
+) -> tuple[float, str]:
+    """Sum-style metric picker: walk keys in order; optionally skip amounts that parse to 0."""
+    last_non_missing: tuple[float, str] | None = None
+    for key in keys:
+        raw = metrics.get(key)
+        if not isinstance(raw, dict):
+            continue
+        amt = raw.get("Amount")
+        if amt is None:
+            amt = raw.get("amount")
+        if amt in (None, ""):
+            continue
+        try:
+            value = float(amt)
+        except (TypeError, ValueError):
+            continue
+        unit = str(raw.get("Unit") or raw.get("unit") or "USD")
+        last_non_missing = (value, unit)
+        if skip_zero and value == 0.0:
+            continue
+        return value, unit
+    if last_non_missing is not None:
+        return last_non_missing
+    return 0.0, "USD"
+
+
+def ce_row_metric_map(row: dict[str, Any]) -> dict[str, Any]:
+    """Metric map from a GetCostAndUsage ResultsByTime row (Total or top-level Metrics)."""
+    total = row.get("Total")
+    if isinstance(total, dict) and total:
+        return total
+    metrics = row.get("Metrics")
+    if isinstance(metrics, dict) and metrics:
+        return metrics
+    return {}
+
 
 class AwsClientFactory:
     def __init__(self, region_name: str) -> None:
@@ -33,6 +113,43 @@ class AwsClientFactory:
     def ce(self) -> Any:
         # Cost Explorer is a global endpoint exposed through us-east-1.
         return self.client("ce", region_name="us-east-1")
+
+    @property
+    def sts(self) -> Any:
+        return self.client("sts", region_name="us-east-1")
+
+    @property
+    def invoicing(self) -> Any:
+        # AWS Invoicing / invoice summary API uses the global us-east-1 endpoint.
+        return self.client("invoicing", region_name="us-east-1")
+
+    def aws_account_id(self) -> str:
+        aid = self.sts.get_caller_identity().get("Account")
+        if not aid:
+            raise RuntimeError("STS GetCallerIdentity did not return Account")
+        return str(aid)
+
+    def list_invoice_summaries_for_billing_period(
+        self, *, account_id: str, year: int, month: int
+    ) -> list[dict[str, Any]]:
+        selector = {"ResourceType": "ACCOUNT_ID", "Value": account_id}
+        filt = {"BillingPeriod": {"Year": year, "Month": month}}
+        items: list[dict[str, Any]] = []
+        token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {
+                "Selector": selector,
+                "Filter": filt,
+                "MaxResults": 100,
+            }
+            if token:
+                kwargs["NextToken"] = token
+            resp = self.invoicing.list_invoice_summaries(**kwargs)
+            items.extend(resp.get("InvoiceSummaries") or [])
+            token = resp.get("NextToken")
+            if not token:
+                break
+        return items
 
     def list_running_instances(self) -> list[dict[str, Any]]:
         paginator = self.ec2.get_paginator("describe_instances")
@@ -98,12 +215,40 @@ class AwsClientFactory:
         kwargs: dict[str, Any] = {
             "TimePeriod": {"Start": start, "End": end},
             "Granularity": granularity,
-            # Request both; dashboard prefers Unblended (list usage), then NetUnblended if unblended is missing.
-            "Metrics": ["UnblendedCost", "NetUnblendedCost"],
+            "Metrics": list(_CE_METRIC_KEYS),
         }
         if group_by_service:
             kwargs["GroupBy"] = [{"Type": "DIMENSION", "Key": "SERVICE"}]
-        return self.ce.get_cost_and_usage(**kwargs).get("ResultsByTime", [])
+
+        merged: dict[tuple[str, str], dict[str, Any]] = {}
+        token: str | None = None
+        while True:
+            page_kwargs = dict(kwargs)
+            if token:
+                page_kwargs["NextPageToken"] = token
+            resp = self.ce.get_cost_and_usage(**page_kwargs)
+            for row in resp.get("ResultsByTime", []):
+                tp = row.get("TimePeriod") or {}
+                key = (str(tp.get("Start") or ""), str(tp.get("End") or ""))
+                existing = merged.get(key)
+                if existing is None:
+                    merged[key] = row
+                else:
+                    g0 = existing.get("Groups") or []
+                    g1 = row.get("Groups") or []
+                    if g1:
+                        existing["Groups"] = g0 + g1
+                    t0, t1 = existing.get("Total"), row.get("Total")
+                    if (not isinstance(t0, dict) or not t0) and isinstance(t1, dict) and t1:
+                        existing["Total"] = t1
+                    m0, m1 = existing.get("Metrics"), row.get("Metrics")
+                    if (not isinstance(m0, dict) or not m0) and isinstance(m1, dict) and m1:
+                        existing["Metrics"] = m1
+            token = resp.get("NextPageToken")
+            if not token:
+                break
+
+        return sorted(merged.values(), key=lambda r: (r.get("TimePeriod") or {}).get("Start") or "")
 
     def daily_unblended_costs(self, *, start: str, end: str, group_by_service: bool = False) -> list[dict[str, Any]]:
         return self.unblended_costs(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from datetime import date
+from typing import Any
 
 import app
 from config import Settings
@@ -39,9 +40,26 @@ def settings() -> Settings:
     )
 
 
+def test_grouped_sum_for_calendar_month_prefix_fallback() -> None:
+    """When exact current_key misses grouped dict, sum any CE keys in the same YYYY-MM."""
+    ms = {"2026-05-01": 0.0003}
+    mc = {"2026-05-01": "USD"}
+    v, c = app._grouped_sum_for_calendar_month(ms, mc, current_key="2026-05-02", month_start=date(2026, 5, 1))
+    assert v == 0.0003
+    assert c == "USD"
+
+
 class FakeFactory:
     def __init__(self, region_name: str) -> None:
         self.region_name = region_name
+
+    def aws_account_id(self) -> str:
+        return "123456789012"
+
+    def list_invoice_summaries_for_billing_period(
+        self, *, account_id: str, year: int, month: int
+    ) -> list[dict[str, Any]]:
+        return []
 
     def monthly_unblended_costs(self, **kwargs):
         cm = date.today().replace(day=1)
@@ -85,9 +103,110 @@ class FakeFactory:
                 "Total": {
                     "NetUnblendedCost": {"Amount": "2.0", "Unit": "USD"},
                     "UnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                    "NetAmortizedCost": {"Amount": "2.1", "Unit": "USD"},
                 },
             }
         ]
+
+
+def test_cost_summary_uses_grouped_monthly_when_ungrouped_and_daily_are_zero(monkeypatch) -> None:
+    """CE often returns 0 on ungrouped Total/daily while grouped-by-SERVICE still has tiny line items."""
+
+    class TinySpendFactory(FakeFactory):
+        def monthly_unblended_costs(self, **kwargs):
+            cm = date.today().replace(day=1)
+            nxt = app._first_day_next_month(cm)
+            if kwargs.get("group_by_service"):
+                return [
+                    {
+                        "TimePeriod": {"Start": cm.isoformat(), "End": nxt.isoformat()},
+                        "Groups": [
+                            {
+                                "Keys": ["AWS Lambda"],
+                                "Metrics": {"UnblendedCost": {"Amount": "0.0001", "Unit": "USD"}},
+                            },
+                        ],
+                    }
+                ]
+            return [
+                {
+                    "TimePeriod": {"Start": cm.isoformat(), "End": nxt.isoformat()},
+                    "Total": {
+                        "UnblendedCost": {"Amount": "0", "Unit": "USD"},
+                        "BlendedCost": {"Amount": "0", "Unit": "USD"},
+                    },
+                }
+            ]
+
+        def daily_unblended_costs(self, **kwargs):
+            return [
+                {
+                    "TimePeriod": {"Start": kwargs["start"], "End": kwargs["end"]},
+                    "Total": {"UnblendedCost": {"Amount": "0", "Unit": "USD"}},
+                }
+            ]
+
+    monkeypatch.setattr(app, "AwsClientFactory", TinySpendFactory)
+    monkeypatch.setattr(app, "detect_idle_resources", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_spend_spikes", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_savings_opportunities", lambda factory, loaded_settings: [])
+
+    response = app.run_guardrail(settings(), send_alerts=False, cost_months=1)
+
+    assert response["cost_summary"]["month_to_date_unblended_cost"] == 0.0001
+    assert response["cost_summary"]["month_to_date_invoice_hint"] == 0.0
+    assert response["cost_summary"]["total_unblended_cost"] == 0.0001
+    assert response["cost_summary"]["monthly_costs"][0]["amount"] == 0.0001
+
+
+def test_cost_summary_matches_grouped_when_timeperiod_uses_date_objects(monkeypatch) -> None:
+    """Boto3 may deserialize TimePeriod.Start as datetime.date; keys must still align with monthly rows."""
+
+    class DatePeriodFactory(FakeFactory):
+        def monthly_unblended_costs(self, **kwargs):
+            cm = date(2026, 5, 1)
+            nxt = date(2026, 6, 1)
+            if kwargs.get("group_by_service"):
+                return [
+                    {
+                        "TimePeriod": {"Start": cm, "End": nxt},
+                        "Groups": [
+                            {
+                                "Keys": ["AWS Lambda"],
+                                "Metrics": {"UnblendedCost": {"Amount": "0.0002", "Unit": "USD"}},
+                            },
+                        ],
+                    }
+                ]
+            return [
+                {
+                    "TimePeriod": {"Start": cm, "End": nxt},
+                    "Total": {"UnblendedCost": {"Amount": "0", "Unit": "USD"}},
+                }
+            ]
+
+        def daily_unblended_costs(self, **kwargs):
+            return [
+                {
+                    "TimePeriod": {"Start": kwargs["start"], "End": kwargs["end"]},
+                    "Total": {
+                        "UnblendedCost": {"Amount": "0.0002", "Unit": "USD"},
+                        "NetAmortizedCost": {"Amount": "0.0005", "Unit": "USD"},
+                    },
+                }
+            ]
+
+    monkeypatch.setattr(app, "_utc_today", lambda: date(2026, 5, 10))
+    monkeypatch.setattr(app, "AwsClientFactory", DatePeriodFactory)
+    monkeypatch.setattr(app, "detect_idle_resources", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_spend_spikes", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_savings_opportunities", lambda factory, loaded_settings: [])
+
+    response = app.run_guardrail(settings(), send_alerts=False, cost_months=1)
+
+    assert response["cost_summary"]["month_to_date_unblended_cost"] == 0.0002
+    assert response["cost_summary"]["month_to_date_invoice_hint"] == 0.0005
+    assert response["cost_summary"]["total_unblended_cost"] == 0.0002
 
 
 def test_run_guardrail_returns_partial_results_when_detector_fails(monkeypatch) -> None:
@@ -118,6 +237,10 @@ def test_run_guardrail_returns_partial_results_when_detector_fails(monkeypatch) 
 
     assert response["cost_summary"]["total_unblended_cost"] == 2.0
     assert response["cost_summary"]["month_to_date_unblended_cost"] == 2.0
+    assert response["cost_summary"]["month_to_date_invoice_hint"] == 2.1
+    assert response["cost_summary"]["invoice_hint_basis"] == "ce_net_amortized_then_amortized_daily"
+    assert response["cost_summary"]["invoice_billing"]["available"] is True
+    assert response["cost_summary"]["invoice_billing"]["account_id"] == "123456789012"
     assert response["cost_summary"]["top_services"][0]["service"] == "Amazon Elastic Compute Cloud - Compute"
     assert response["finding_count"] == 1
     assert response["recommendation_count"] == 1
@@ -197,16 +320,12 @@ def test_run_guardrail_accepts_cost_months_filter(monkeypatch) -> None:
                     "Total": {
                         "NetUnblendedCost": {"Amount": "4", "Unit": "USD"},
                         "UnblendedCost": {"Amount": "4", "Unit": "USD"},
+                        "NetAmortizedCost": {"Amount": "5", "Unit": "USD"},
                     },
                 }
             ]
 
-    class _FixedTodayDate(date):
-        @classmethod
-        def today(cls):
-            return date(2026, 4, 15)
-
-    monkeypatch.setattr(app, "date", _FixedTodayDate)
+    monkeypatch.setattr(app, "_utc_today", lambda: date(2026, 4, 15))
     monkeypatch.setattr(app, "AwsClientFactory", MultiMonthFactory)
     monkeypatch.setattr(app, "detect_idle_resources", lambda factory, loaded_settings: [])
     monkeypatch.setattr(app, "detect_spend_spikes", lambda factory, loaded_settings: [])
@@ -217,7 +336,95 @@ def test_run_guardrail_accepts_cost_months_filter(monkeypatch) -> None:
     assert response["cost_summary"]["months"] == 6
     assert response["cost_summary"]["total_unblended_cost"] == 7
     assert response["cost_summary"]["month_to_date_unblended_cost"] == 4
+    assert response["cost_summary"]["month_to_date_invoice_hint"] == 5
     assert response["cost_summary"]["monthly_costs"][0]["amount"] == 3
+
+
+def test_cost_summary_invoice_billing_prior_closed_invoice(monkeypatch) -> None:
+    """AWS Invoice Summary API returns authoritative totals for closed billing months."""
+
+    class InvoiceFactory(FakeFactory):
+        def monthly_unblended_costs(self, **kwargs):
+            cm = date(2026, 5, 1)
+            nxt = date(2026, 6, 1)
+            if kwargs.get("group_by_service"):
+                return [
+                    {
+                        "TimePeriod": {"Start": cm.isoformat(), "End": nxt.isoformat()},
+                        "Groups": [
+                            {
+                                "Keys": ["Amazon Elastic Compute Cloud - Compute"],
+                                "Metrics": {
+                                    "NetUnblendedCost": {"Amount": "1.25", "Unit": "USD"},
+                                    "UnblendedCost": {"Amount": "1.25", "Unit": "USD"},
+                                },
+                            },
+                        ],
+                    }
+                ]
+            return [
+                {
+                    "TimePeriod": {"Start": cm.isoformat(), "End": nxt.isoformat()},
+                    "Total": {
+                        "NetUnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                        "UnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                        "NetAmortizedCost": {"Amount": "2.1", "Unit": "USD"},
+                    },
+                }
+            ]
+
+        def daily_unblended_costs(self, **kwargs):
+            return [
+                {
+                    "TimePeriod": {"Start": kwargs["start"], "End": kwargs["end"]},
+                    "Total": {
+                        "NetUnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                        "UnblendedCost": {"Amount": "2.0", "Unit": "USD"},
+                        "NetAmortizedCost": {"Amount": "2.1", "Unit": "USD"},
+                    },
+                }
+            ]
+
+        def list_invoice_summaries_for_billing_period(self, *, account_id: str, year: int, month: int):
+            if year == 2026 and month == 4:
+                return [
+                    {
+                        "InvoiceId": "inv-prior",
+                        "BillingPeriod": {"Year": 2026, "Month": 4},
+                        "IssuedDate": 1715000000000,
+                        "BaseCurrencyAmount": {
+                            "TotalAmount": "199.5",
+                            "TotalAmountBeforeTax": "180.0",
+                            "CurrencyCode": "USD",
+                        },
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr(app, "_utc_today", lambda: date(2026, 5, 10))
+    monkeypatch.setattr(app, "AwsClientFactory", InvoiceFactory)
+    monkeypatch.setattr(app, "detect_idle_resources", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_spend_spikes", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_savings_opportunities", lambda factory, loaded_settings: [])
+
+    response = app.run_guardrail(settings(), send_alerts=False, cost_months=1)
+    ib = response["cost_summary"]["invoice_billing"]
+    assert ib["available"] is True
+    assert ib["account_id"] == "123456789012"
+    assert ib["prior_period"]["total_amount"] == 199.5
+    assert ib["prior_period"]["total_before_tax"] == 180.0
+    assert ib["prior_period"]["currency"] == "USD"
+    assert ib["current_period"] is None
+
+
+def test_cost_summary_skips_invoice_api_when_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(app, "AwsClientFactory", FakeFactory)
+    monkeypatch.setattr(app, "detect_idle_resources", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_spend_spikes", lambda factory, loaded_settings: [])
+    monkeypatch.setattr(app, "detect_savings_opportunities", lambda factory, loaded_settings: [])
+
+    response = app.run_guardrail(replace(settings(), invoice_summary_enabled=False), send_alerts=False, cost_months=1)
+    assert response["cost_summary"]["invoice_billing"] == {"available": False, "skipped": True}
 
 
 def test_lambda_handler_returns_http_health_response(monkeypatch) -> None:
@@ -381,6 +588,8 @@ def test_lambda_handler_cost_summary_endpoint_uses_months_query(monkeypatch) -> 
     assert response["statusCode"] == 200
     assert '"months": 6' in response["body"]
     assert '"total_unblended_cost": 2.0' in response["body"]
+    body = json.loads(response["body"])
+    assert body["cost_summary"]["month_to_date_invoice_hint"] == 2.1
 
 
 def test_lambda_handler_recommendations_endpoint_is_read_only(monkeypatch) -> None:

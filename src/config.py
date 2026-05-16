@@ -33,7 +33,8 @@ class Settings:
     whatsapp_phone_number_id: str | None
     whatsapp_to: str | None
     whatsapp_api_version: str
-    billing_console_role_arn: str | None
+    billing_console_role_arn: str | None = None
+    invoice_summary_enabled: bool = True
 
 
 def _get_float(name: str, default: float) -> float:
@@ -80,6 +81,13 @@ def _csv(name: str, default: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in raw.split(",") if item.strip())
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
 def load_settings() -> Settings:
     owner_email_map = _get_json("OWNER_EMAIL_MAP") or {}
     return Settings(
@@ -108,4 +116,5 @@ def load_settings() -> Settings:
         whatsapp_to=os.getenv("WHATSAPP_TO"),
         whatsapp_api_version=os.getenv("WHATSAPP_API_VERSION", "v19.0"),
         billing_console_role_arn=(os.getenv("BILLING_CONSOLE_ROLE_ARN") or None),
+        invoice_summary_enabled=_env_bool("INVOICE_SUMMARY_ENABLED", True),
     )

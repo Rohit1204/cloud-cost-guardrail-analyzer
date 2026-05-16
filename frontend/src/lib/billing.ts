@@ -22,27 +22,36 @@ function monthEndExclusive(start: Date): Date {
   return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
 }
 
+function utcCalendarDate(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
 export function estimateBilling(summary: CostSummary | null | undefined, now = new Date()): BillingEstimate | null {
   if (!summary || summary.monthly_costs.length === 0) {
     return null;
   }
 
   const currentMonth = summary.monthly_costs[summary.monthly_costs.length - 1];
+  const monthToDateCost =
+    typeof summary.month_to_date_unblended_cost === "number"
+      ? summary.month_to_date_unblended_cost
+      : currentMonth.amount;
   const periodStart = new Date(`${currentMonth.start}T00:00:00Z`);
   const reportedEnd = new Date(`${currentMonth.end}T00:00:00Z`);
   const periodEnd = monthEndExclusive(periodStart);
   const effectiveEnd = reportedEnd < periodEnd ? reportedEnd : periodEnd;
   const daysElapsed = daysBetween(periodStart, effectiveEnd);
   const totalDays = daysBetween(periodStart, periodEnd);
-  const daysRemaining = Math.max(0, daysBetween(now, periodEnd) - 1);
-  const projectedMonthEndCost = (currentMonth.amount / daysElapsed) * totalDays;
+  const nowUtc = utcCalendarDate(now);
+  const daysRemaining = Math.max(0, daysBetween(nowUtc, periodEnd) - 1);
+  const projectedMonthEndCost = (monthToDateCost / daysElapsed) * totalDays;
   const reminderLevel = daysRemaining <= 7 ? "warning" : "info";
 
   return {
     currency: summary.currency,
     billingPeriodStart: currentMonth.start,
     billingPeriodEnd: periodEnd.toISOString().slice(0, 10),
-    monthToDateCost: currentMonth.amount,
+    monthToDateCost,
     projectedMonthEndCost,
     daysElapsed,
     daysRemaining,

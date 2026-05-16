@@ -33,6 +33,36 @@ export type ServiceCost = {
   currency: string;
 };
 
+/** Closed billing month totals from AWS Invoice Summary API (ListInvoiceSummaries). */
+export type InvoiceBillingPeriodSummary = {
+  billing_period: { year: number; month: number };
+  invoice_ids: string[];
+  /** Primary total for display: payment currency when AWS sends it, else base invoice currency. */
+  total_amount: number | null;
+  total_before_tax: number | null;
+  currency: string | null;
+  display_basis?: "payment_currency" | "base_currency";
+  base_total_amount?: number | null;
+  base_total_before_tax?: number | null;
+  base_currency?: string | null;
+  payment_total_amount?: number | null;
+  payment_total_before_tax?: number | null;
+  payment_currency?: string | null;
+  tax_currency_total_amount?: number | null;
+  tax_currency?: string | null;
+  issued_date: number | null;
+};
+
+export type InvoiceBilling = {
+  available: boolean;
+  skipped?: boolean;
+  account_id?: string;
+  source?: string;
+  error?: { error_type: string; message: string };
+  current_period?: InvoiceBillingPeriodSummary | null;
+  prior_period?: InvoiceBillingPeriodSummary | null;
+};
+
 export type CostSummary = {
   months: number;
   period: { start: string; end: string };
@@ -41,8 +71,13 @@ export type CostSummary = {
   currency: string;
   monthly_costs: CostPoint[];
   top_services: ServiceCost[];
-  /** API prefers UnblendedCost, then NetUnblendedCost if needed. */
+  /** Which CE metric was used first (Unblended → Net → Blended → amortized fallbacks). */
   usage_cost_basis?: string;
+  /** Daily CE sum using NetAmortizedCost then AmortizedCost when present; not the AWS invoice. */
+  month_to_date_invoice_hint?: number | null;
+  month_to_date_invoice_hint_currency?: string | null;
+  invoice_hint_basis?: string | null;
+  invoice_billing?: InvoiceBilling;
 };
 
 export type CostSummaryResponse = {

@@ -25,7 +25,11 @@ export function CostCharts({ summary }: Props) {
   }
 
   const monthlyData = summary.monthly_costs.map((point) => ({
-    month: new Date(point.start).toLocaleDateString("en", { month: "short" }),
+    month: new Intl.DateTimeFormat("en", { month: "short", timeZone: "UTC" }).format(
+      /^\d{4}-\d{2}-\d{2}$/.test(String(point.start ?? "").trim())
+        ? new Date(`${String(point.start).trim()}T00:00:00.000Z`)
+        : new Date(point.start),
+    ),
     amount: point.amount,
   }));
 
